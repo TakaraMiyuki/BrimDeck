@@ -4,9 +4,25 @@ namespace BrimDeck.Core;
 // and which page the panel falls back to. The panel and the settings window ask here instead of comparing pages themselves.
 public static class DeckPages
 {
-    // The page switch, left to right.
-    public static readonly IReadOnlyList<DeckPage> Order = [DeckPage.Usage, DeckPage.Music, DeckPage.Monitor,
-        DeckPage.Extension0, DeckPage.Extension1, DeckPage.Extension2, DeckPage.Extension3];
+    // The page switch, left to right: the built-in three, then the plugin pages in the order the reader arranged them.
+    // A plugin the reader never moved carries no place and goes last; places that tie — two untouched plugins, or a file
+    // written by hand — fall back to slot order, so a settings file nobody rearranged reads exactly as it always did.
+    // A list rather than a read-only view: asking where a page sits is the whole point of asking for the order.
+    public static List<DeckPage> Order(DeckSettings settings) =>
+        [DeckPage.Usage, DeckPage.Music, DeckPage.Monitor,
+        .. ExtensionPages.Select(page => (page, slot: SlotOf(page), rank: Rank(settings, page)))
+            .OrderBy(item => item.rank).ThenBy(item => item.slot).Select(item => item.page)];
+
+    private static readonly DeckPage[] ExtensionPages = [DeckPage.Extension0, DeckPage.Extension1, DeckPage.Extension2, DeckPage.Extension3];
+
+    // The place written on the plugin's own row, which only an arrangement writes. Everything else that creates a row —
+    // the switch, a resize, a value the plugin's page saved — leaves it at -1, and an unplaced plugin follows the others.
+    private static int Rank(DeckSettings settings, DeckPage page)
+    {
+        if (SlotId?.Invoke(SlotOf(page)) is not { Length: > 0 } id) return int.MaxValue;
+        var placed = settings.Extensions.Find(entry => entry.Id == id)?.Order ?? -1;
+        return placed >= 0 ? placed : int.MaxValue;
+    }
 
     // Set by the app at startup: whether each extension slot has an extension behind it, that extension's id, and how
     // small its page may go. Without them the slots read as empty, which is what the plain tests see.
@@ -30,7 +46,7 @@ public static class DeckPages
             DeckPage.Extension0 or DeckPage.Extension1 or DeckPage.Extension2 or DeckPage.Extension3 => SlotShown(settings, SlotOf(page)), _ => false
     };
 
-    public static IReadOnlyList<DeckPage> Visible(DeckSettings settings) => Order.Where(page => Shown(settings, page)).ToList();
+    public static List<DeckPage> Visible(DeckSettings settings) => Order(settings).Where(page => Shown(settings, page)).ToList();
 
     // The page shown when wanted is asked for: wanted while it is shown, otherwise the first shown page in switch order.
     // With every page switched off it is the usage page, which then says that it is off.

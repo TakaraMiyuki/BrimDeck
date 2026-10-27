@@ -3,8 +3,8 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Shapes;
 using BrimDeck.Core;
 
 namespace BrimDeck;
@@ -82,6 +82,8 @@ public sealed partial class SettingsWindow
         if (_pluginsHost is not null) _pluginsHost.Child = PluginsList();
     }
 
+    // The rows stand in the order the reader arranged them — read from DeckPages.Order, the same list the island's tabs
+    // and the wheel walk — so this page cannot say one order and the panel another.
     private FrameworkElement PluginsList()
     {
         if (IslandExtensions.OccupiedCount == 0)
@@ -90,20 +92,23 @@ public sealed partial class SettingsWindow
             empty.Margin = new Thickness(0, 6, 0, 8);
             return empty;
         }
+        _pluginRows = DeckPages.Order(S).Select(DeckPages.SlotOf).Where(slot => slot >= 0 && IslandExtensions.Occupied(slot)).ToList();
         var list = new StackPanel();
-        for (int slot = 0; slot < IslandExtensions.Slots.Length; slot++)
-        {
-            if (!IslandExtensions.Occupied(slot)) continue;
-            if (list.Children.Count > 0) list.Children.Add(new Border { Height = 1, Background = UI.Brush(_palette.RowDivider) });
-            list.Children.Add(PluginRow(slot));
-        }
+        Array.Clear(_pluginHandles, 0, _pluginHandles.Length);
+        for (int at = 0; at < _pluginRows.Count; at++) list.Children.Add(PluginRow(_pluginRows[at], at, _pluginRows.Count));
+        // The rows carry their own divider, as the app list's do, so moving one moves its line with it.
+        UpdateDividers(list);
+        _pluginList = list;
         return list;
     }
 
-    // One loaded plugin: a header row — its glyph and title, its enable switch, and the arrow that opens the settings
-    // under it; open, the page's size and the id and folder it came from. The switch is the plugin's own: off takes its tab
-    // off the island and stops what it reads, in every state of the panel.
-    private FrameworkElement PluginRow(int slot)
+    private List<int> _pluginRows = [];
+    private StackPanel? _pluginList;
+
+    // One loaded plugin: a header row — the handle it is dragged by, its glyph and title, its enable switch, and the arrow
+    // that opens the settings under it; open, the page's size and the id and folder it came from. The switch is the plugin's
+    // own: off takes its tab off the island and stops what it reads, in every state of the panel.
+    private FrameworkElement PluginRow(int slot, int position, int total)
     {
         var extension = IslandExtensions.Slots[slot]!;
         string id = extension.Id, title = IslandExtensions.Title(slot);
@@ -114,35 +119,38 @@ public sealed partial class SettingsWindow
         var column = new StackPanel();
         var header = new Grid { MinHeight = 44, Background = Brushes.Transparent };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition());
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.Children.Add(DragHandle(slot, position, total));
         var glyph = new System.Windows.Shapes.Path
         {
             Data = IslandExtensions.SafeGlyph(extension.Glyph), Stroke = UI.Brush(TextSecondary), StrokeThickness = 1.4,
             StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
             Width = 16, Height = 16, Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0)
         };
+        Grid.SetColumn(glyph, 1);
         header.Children.Add(glyph);
         var name = TextLine(title, 13, TextPrimary, FontWeights.SemiBold);
         name.VerticalAlignment = VerticalAlignment.Center; name.TextTrimming = TextTrimming.CharacterEllipsis;
-        Grid.SetColumn(name, 1);
+        Grid.SetColumn(name, 2);
         header.Children.Add(name);
         var enable = new CheckBox { Style = (Style)FindResource("SettingsToggle"), IsChecked = enabled, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
         AutomationProperties.SetName(enable, Loc.T("启用 ", "Enable ") + title);
         enable.Checked += (_, _) => ChangePlugin(id, current => current with { Shown = true });
         enable.Unchecked += (_, _) => ChangePlugin(id, current => current with { Shown = false });
-        Grid.SetColumn(enable, 2);
+        Grid.SetColumn(enable, 3);
         header.Children.Add(enable);
         void Flip() { _pluginOpen[slot] = !_pluginOpen[slot]; RefreshPlugins(); }
         var arrow = ChevronButton(Loc.T("展开 ", "Expand ") + title, Flip);
         arrow.Margin = new Thickness(2, 0, 0, 0);
-        Grid.SetColumn(arrow, 3);
+        Grid.SetColumn(arrow, 4);
         header.Children.Add(arrow);
         header.MouseLeftButtonDown += (_, e) => { Flip(); e.Handled = true; };
         column.Children.Add(header);
 
-        var details = new StackPanel { Margin = new Thickness(26, 0, 0, 10), Visibility = _pluginOpen[slot] ? Visibility.Visible : Visibility.Collapsed };
+        var details = new StackPanel { Margin = new Thickness(42, 0, 0, 10), Visibility = _pluginOpen[slot] ? Visibility.Visible : Visibility.Collapsed };
         var dimensions = new Grid { MinHeight = 44 }; dimensions.ColumnDefinitions.Add(new()); dimensions.ColumnDefinitions.Add(new());
         // The page's own limits, which a plugin's manifest can raise: the fields offer exactly the sizes the page can take,
         // and show the size it is actually using even when an older file saved less.
@@ -185,7 +193,13 @@ public sealed partial class SettingsWindow
         details.Children.Add(source);
         column.Children.Add(details);
         PointArrow(arrow, _pluginOpen[slot]);
-        return column;
+        // The row is what the list measures and moves: its own divider, its place marked by the slot it shows, and the
+        // transform a drag lives in.
+        return new Border
+        {
+            Child = column, BorderBrush = UI.Brush(_palette.RowDivider), BorderThickness = new Thickness(0),
+            Tag = slot, RenderTransform = new TranslateTransform()
+        };
     }
 
     // Writes one dimension of an extension page's size into its own settings entry. The other dimension is read back
@@ -196,6 +210,53 @@ public sealed partial class SettingsWindow
         var (nowWidth, nowHeight) = DeckPages.Size(settings, page);
         DeckPages.SetSize(settings, page, width ?? nowWidth, height ?? nowHeight);
     }
+
+    // The six dots a reader drags the row by, as the app list and the collapsed content are dragged: press and move, the
+    // row lifts onto the page's own surface, and the rows it passes make room for it. Only this handle drags, so a click
+    // anywhere else keeps opening and closing the row the way it always did. Reordering is by mouse only, like every
+    // other arrangement in the product — so this handle is not a tab stop and offers no keys. With a single plugin there
+    // is no place to move it to, so the space is kept — the rows line up either way — and the handle is not offered.
+    private FrameworkElement DragHandle(int slot, int position, int total)
+    {
+        if (total < 2) return new Border { Width = 22, Margin = new Thickness(0, 0, 4, 0) };
+        // The same six dots as the app list and the collapsed content: two columns of three, in the same 22-wide strip.
+        var handle = new Button
+        {
+            Content = Grip(TextTertiary), Style = (Style)FindResource("SettingsGlyphButton"), Cursor = Cursors.SizeAll,
+            Width = 22, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0)
+        };
+        _pluginHandles[slot] = handle;
+        // The page's own drag, the one the app list and the collapsed content move by. The button would take the press
+        // and let go of it itself first, so this handle is wired to what happens before that.
+        AttachDrag(handle, () => _pluginList, PluginsReordered, preview: true);
+        // Where the row stands is the point of the control, so its name says it: a screen reader hears which place this
+        // row holds, and a reader who moves rows by mouse hears the row arrive at its new place.
+        AutomationProperties.SetName(handle, PluginHandleName(slot, position, total));
+        return handle;
+    }
+
+    private string PluginHandleName(int slot, int position, int total)
+    {
+        var title = IslandExtensions.Title(slot);
+        return Loc.T($"{title} 的位置，第 {position + 1} 个，共 {total} 个", $"{title} position, {position + 1} of {total}");
+    }
+
+    // After a drop the rows already stand in their new order: nothing is rebuilt, or the rows would jump from where the
+    // drag set them down. What the page says is what the settings are about to say — the same places the tabs will take.
+    private void PluginsReordered(Panel list)
+    {
+        _pluginRows = list.Children.OfType<Border>().Select(row => (int)row.Tag!).ToList();
+        for (int at = 0; at < _pluginRows.Count; at++)
+            if (_pluginHandles[_pluginRows[at]] is { } handle)
+                AutomationProperties.SetName(handle, PluginHandleName(_pluginRows[at], at, _pluginRows.Count));
+        var ids = _pluginRows.Select(slot => IslandExtensions.Slots[slot]?.Id).ToList();
+        if (ids.Any(id => string.IsNullOrEmpty(id))) return;
+        Change(settings => settings.ReorderExtensions(ids.Select(id => id!).ToList()));
+    }
+
+    // The handle of each loaded slot, so a drop can rename the rows it moved: the list is not built again after a drag,
+    // and each handle's name is the only place its row says where it stands.
+    private readonly Button?[] _pluginHandles = new Button?[4];
 
     // Writes the plugin's own entry, creating it on the first change so an untouched plugin keeps its defaults.
     private void ChangePlugin(string id, Func<ExtensionPageSettings, ExtensionPageSettings> edit)

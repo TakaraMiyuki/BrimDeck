@@ -295,7 +295,7 @@ public sealed partial class SettingsWindow
         Grid.SetColumn(shown, 4); row.Children.Add(shown);
 
         // Dropped in a new place, the strip takes the new order at once.
-        AttachDrag(handle, () => rows, ReadingRowHeight, list =>
+        AttachDrag(handle, () => rows, list =>
         {
             var order = list.Children.OfType<Border>().Where(b => b.Tag is CompactMonitorItems).Select(b => (CompactMonitorItems)b.Tag).ToArray();
             Change(s => s.CompactReadings = order.Select(id => Reading(s, id)).ToList());

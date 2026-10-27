@@ -31,7 +31,8 @@ public sealed record FullscreenRule(string Name = "", string Path = "")
 // SettingsMigrations maps them back to Claude, and later members keep their saved numbers.
 public enum ProviderId { Claude, Codex, Antigravity, Cursor, GlmChina, NewApi, Sub2Api, Custom, ZCode = 10, GlmGlobal = 11, Dsh = 12, DeepSeek = 13, GrokBot = 14, Kimi = 15, KimiApi = 16 }
 public enum SettingsTheme { System, Light, Dark }
-// Pages are saved as numbers, so new members go at the end; their order in the page switch is DeckPages.Order.
+// Pages are saved as numbers, so new members go at the end; the order they switch in is DeckPages.Order(settings),
+// which keeps the built-in three first and reads each plugin page's place off its own settings row below.
 // Extension0..3 are the slots an extension page can occupy; the app loads the extensions and fills them in order.
 public enum DeckPage { Usage, Music, Monitor, Extension0, Extension1, Extension2, Extension3 }
 public enum DefaultDeckPage { Last, Usage, Music, Monitor, Extension0, Extension1, Extension2, Extension3 }
@@ -194,7 +195,7 @@ public static class MonitorSizes
 // the controls its manifest declares. The id is the extension's; an entry whose extension is gone is kept, so a return
 // restores the page as it was — values included, which is why a value the manifest no longer declares is kept rather
 // than deleted (the page never reads it, and the author gets it back if they declare the control again).
-public sealed record ExtensionPageSettings(string Id = "", bool Shown = true, double Width = 440, double Height = 160)
+public sealed record ExtensionPageSettings(string Id = "", bool Shown = true, double Width = 440, double Height = 160, int Order = -1)
 {
     public Dictionary<string, ExtensionSettingValue> Values { get; init; } = [];
 }
@@ -316,6 +317,21 @@ public sealed class DeckSettings
         var at = Extensions.FindIndex(e => e.Id == id);
         if (at < 0) { var created = new ExtensionPageSettings(id); created.Values[key] = value; Extensions.Add(created); return; }
         Extensions[at].Values[key] = value;
+    }
+    // Writes the reader's order down. The place belongs to the plugin's own row, because a row appears for reasons that
+    // say nothing about position: its switch was flipped, its page was resized, its own page saved a declared value.
+    // A plugin named here without a row yet gets a default one, since naming it is the reader saying where it belongs;
+    // a row kept for a plugin that is not loaded right now — one whose folder was taken away, held so it can come
+    // back — keeps the place it had and finds it again when the folder returns.
+    public void ReorderExtensions(IReadOnlyList<string> order)
+    {
+        var wanted = order.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
+        for (int at = 0; at < wanted.Count; at++)
+        {
+            int index = Extensions.FindIndex(entry => entry.Id == wanted[at]);
+            if (index < 0) { Extensions.Add(new ExtensionPageSettings(wanted[at], Order: at)); continue; }
+            if (Extensions[index].Order != at) Extensions[index] = Extensions[index] with { Order = at };
+        }
     }
     // The Custom scheme's colors; kept while another scheme is chosen.
     public MonitorCustomColors MonitorCustomColors { get; set; } = new();

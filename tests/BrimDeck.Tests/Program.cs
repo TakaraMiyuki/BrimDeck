@@ -30,6 +30,7 @@ try
     ExtensionManifestTests.Run(root, Check);
     ExtensionSettingTests.Run(root, Check);
     ExtensionStoreTests.Run(Check);
+    PageOrderTests.Run(Check);
     ExternalLinkTests.Run(Check);
     BridgeTests.Run(Check);
     CompactReadingTests.Run(Check);

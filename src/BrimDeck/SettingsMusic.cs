@@ -91,7 +91,7 @@ public sealed partial class SettingsWindow
         AutomationProperties.SetName(toggle, title); toggle.Checked += (_, _) => Show(true); toggle.Unchecked += (_, _) => Show(false);
         Grid.SetColumn(toggle, 2); row.Children.Add(toggle);
         // Dropped in a new place, the collapsed row takes the new order at once.
-        AttachDrag(handle, () => rows, PartRowHeight, list =>
+        AttachDrag(handle, () => rows, list =>
         {
             var order = list.Children.OfType<Border>().Where(b => b.Tag is CompactPart).Select(b => (CompactPart)b.Tag).ToArray();
             Change(s => s.SetCompactOrder(style, order));

@@ -48,6 +48,16 @@ internal static class Program
 
         SetProcessDpiAwarenessContext(-4);
         var data = options.Data ?? Path.Combine(Path.GetTempPath(), "BrimDeck-UiTests-" + Guid.NewGuid().ToString("N"));
+        // This is a test profile: the suite writes fixture plugins into it, lets their pages save into it, and
+        // rearranges the plugin order it holds. A --data naming the folder BrimDeck really uses is refused at the door,
+        // where one guard covers every step, instead of being noticed in the settings file the run rewrote.
+        var real = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BrimDeck");
+        if (string.Equals(data.TrimEnd('\\', '/'), real, StringComparison.OrdinalIgnoreCase))
+        {
+            Console.Error.WriteLine("--data is the profile BrimDeck uses for real settings (" + real
+                + "). Leave --data out to run on a throwaway folder.");
+            return 2;
+        }
         Directory.CreateDirectory(data);
         var log = Path.Combine(data, "extensions.log");
         WriteFixture(data, "fixture-a", "FixtureA", MarkA, "#C00000", minWidth: 440, minHeight: 220);
@@ -168,6 +178,44 @@ internal static class Program
                 Console.WriteLine("PASS after the 15s reclaim A comes back in " + (int)elapsed + " ms");
             }
 
+            // One order, not two. The strip is laid out by slot and the wheel walks those same slots, so a reload that
+            // replaces one plugin rebuilds exactly one tab — and a rebuilt tab that lands at the end of the line leaves
+            // the reader's wheel arriving at pages in a sequence their eyes never saw.
+            Reopen();
+            Require(Rising(TabLefts(window)), "the four plugin tabs lie in switch order");
+            Console.WriteLine("PASS the four plugin tabs lie in switch order");
+            File.AppendAllText(Path.Combine(data, "extensions", "fixture-b", "index.html"), "\n<!-- touched -->");
+            Press(FindAny(window, "设置", "Settings"));
+            var settings = WaitFor(app.SettingsWindow, TimeSpan.FromSeconds(8), "the settings window")
+                ?? throw new TestFailure("the settings window never opened");
+            Press(FindAny(settings, "插件", "Plugins"));
+            Press(FindAny(settings, "重新加载", "Reload"));
+            Thread.Sleep(1500);
+            Reopen();
+            var after = TabLefts(window);
+            Require(Rising(after), "a reload leaves the tabs in the order the page switch walks them (" + string.Join(", ", after) + ")");
+            Console.WriteLine("PASS a reload keeps the plugin tabs in switch order");
+
+            // The order is the reader's to arrange, and the panel has to follow it. The arrangement is made the only way
+            // a reader makes it — press the six dots, walk the pointer down past two rows, let go — and it counts as
+            // tested only once the strip itself moves, since the tabs are what the reader actually sees.
+            var handles = OrderHandles(settings);
+            Require(handles.Length == 4, "every loaded plugin offers a handle to move it by (" + handles.Length + ")");
+            BringForward(settings);
+            var pointer = DragRow(handles, 0, 2);
+            Require(WaitTitles(settings, ["FixtureB", "FixtureC", "FixtureA", "FixtureD"]),
+                "the pointer drag lands where it was taken — " + pointer + ", rows: " + string.Join(", ", RowTitles(settings)));
+            // The rows say their own place in the name they carry, so a drop that reached the app is visible here even
+            // before the panel is read: rows unmoved means the pointer never moved the row, rows moved and tabs still in
+            // the old order means the panel did not follow.
+            var rows = string.Join(" | ", OrderHandles(settings).Select(Place));
+            Reopen();
+            var arranged = TabsByLeft(window);
+            Require(arranged.SequenceEqual(new[] { "FixtureB", "FixtureC", "FixtureA", "FixtureD" }),
+                "a drag past two rows moves the first plugin, and the tabs move with it — " + pointer
+                + ", rows: " + rows + ", tabs: " + string.Join(", ", arranged));
+            Console.WriteLine("PASS the page switch follows the order the reader arranged: " + string.Join(", ", arranged));
+
             Console.WriteLine("UI SMOKE PASSED");
             return 0;
         }
@@ -235,6 +283,123 @@ internal static class Program
                 new PropertyCondition(AutomationElement.NameProperty, name)));
         }
         catch (ElementNotAvailableException) { return null; }
+    }
+
+    // Either language: the throwaway profile's is not the harness's to know.
+    private static AutomationElement FindAny(AutomationElement window, params string[] names)
+    {
+        foreach (var name in names)
+            if (WaitFor(() => FindOrNull(window, name), TimeSpan.FromSeconds(3), name) is { } found) return found;
+        throw new TestFailure("none of \"" + string.Join("\" / \"", names) + "\" is in that window");
+    }
+
+    // The plugin tabs' left edges, listed in the order the page switch walks them. The strip tells the truth only when
+    // these rise: a tab rebuilt by a reload has to go back to its slot's place, not to the end of the line.
+    private static int[] TabLefts(AutomationElement window)
+    {
+        string[] names = ["FixtureA", "FixtureB", "FixtureC", "FixtureD"];
+        var lefts = new int[names.Length];
+        for (int i = 0; i < names.Length; i++) lefts[i] = (int)Find(window, names[i]).Current.BoundingRectangle.Left;
+        return lefts;
+    }
+
+    private static bool Rising(int[] lefts)
+    {
+        for (int i = 1; i < lefts.Length; i++) if (lefts[i] <= lefts[i - 1]) return false;
+        return true;
+    }
+
+    // The plugin tabs read left to right, which is the only order the reader sees. Listed by name so a change of the
+    // arranged order shows up as a different sequence instead of merely a set of rising edges.
+    private static string[] TabsByLeft(AutomationElement window)
+    {
+        string[] names = ["FixtureA", "FixtureB", "FixtureC", "FixtureD"];
+        return names.OrderBy(name => Find(window, name).Current.BoundingRectangle.Left).ToArray();
+    }
+
+    // The six-dot handles on the plugins page, top row first. Their names carry the position they stand at, which is
+    // how a screen reader is told where the row is — and how this test finds them in either interface language.
+    private static AutomationElement[] OrderHandles(AutomationElement settings)
+    {
+        var found = settings.FindAll(TreeScope.Descendants, new AndCondition(
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
+            new PropertyCondition(AutomationElement.IsContentElementProperty, true)));
+        var handles = new List<AutomationElement>();
+        foreach (AutomationElement element in found)
+        {
+            try
+            {
+                string name = element.Current.Name;
+                if (name.Contains("位置") || name.Contains("position")) handles.Add(element);
+            }
+            catch (ElementNotAvailableException) { }
+        }
+        return handles.OrderBy(element => element.Current.BoundingRectangle.Top).ToArray();
+    }
+
+    // What the handle says its row is: "FixtureA position, 1 of 4" in English, "A 的位置，第 1 个，共 4 个" in Chinese.
+    // The name is the row's own report of its place, so it answers "did the drop reach the app?" without reading a file.
+    private static string Place(AutomationElement handle)
+    {
+        try { return handle.Current.Name; }
+        catch (ElementNotAvailableException) { return "(gone)"; }
+    }
+
+    // The row titles read top to bottom, taken from what each handle says about itself — the app's own report of the
+    // arrangement, which is the thing worth waiting on before the panel is read.
+    private static string[] RowTitles(AutomationElement settings)
+    {
+        var titles = new List<string>();
+        foreach (var handle in OrderHandles(settings))
+        {
+            var name = Place(handle);
+            int at = name.IndexOf(" 的位置，", StringComparison.Ordinal);
+            if (at < 0) at = name.IndexOf(" position, ", StringComparison.Ordinal);
+            titles.Add(at >= 0 ? name[..at] : name);
+        }
+        return titles.ToArray();
+    }
+
+    private static bool WaitTitles(AutomationElement settings, string[] expected)
+    {
+        for (int attempt = 0; attempt < 20; attempt++)
+        {
+            if (RowTitles(settings).SequenceEqual(expected)) return true;
+            Thread.Sleep(250);
+        }
+        return false;
+    }
+
+    // A row moved the only way a reader moves it: press the six dots, walk the pointer down to the row it should pass,
+    // let go. No UIA pattern can do this — the drag lives on the mouse moves that follow a captured press — so the
+    // button events come from user32 and land on whatever sits under the cursor, which is why the window is brought
+    // forward first. The row centres are read before the press, because the rows shift under the pointer while it walks.
+    private static string DragRow(AutomationElement[] handles, int from, int to)
+    {
+        int X(AutomationElement element) => (int)((element.Current.BoundingRectangle.Left + element.Current.BoundingRectangle.Right) / 2);
+        int Y(AutomationElement element) => (int)((element.Current.BoundingRectangle.Top + element.Current.BoundingRectangle.Bottom) / 2);
+        int x = X(handles[from]), start = Y(handles[from]), end = Y(handles[to]);
+        SetCursorPos(x, start);
+        Thread.Sleep(150);
+        mouse_event(LeftDown, 0, 0, 0, UIntPtr.Zero);
+        for (int step = 1; step <= 8; step++)
+        {
+            SetCursorPos(x, start + (end - start) * step / 8);
+            Thread.Sleep(50);
+        }
+        Thread.Sleep(150);
+        mouse_event(LeftUp, 0, 0, 0, UIntPtr.Zero);
+        Thread.Sleep(200);
+        return "pointer " + x + "," + start + " -> " + x + "," + end;
+    }
+
+    // The window whose rows are dragged has to be the one under those coordinates. The panel's own window is opened and
+    // closed by hover all through a run and may well be the one holding the foreground.
+    private static void BringForward(AutomationElement window)
+    {
+        var handle = new IntPtr(window.Current.NativeWindowHandle);
+        if (handle == IntPtr.Zero || !SetForegroundWindow(handle)) throw new TestFailure("that window cannot be brought forward");
+        Thread.Sleep(300);
     }
 
     // UIA Invoke is used instead of a pointer click: the panel's buttons are exposed as invoke patterns, and clicking
@@ -566,6 +731,9 @@ internal static class Program
     private static (int Width, int Height) Screen() => (GetSystemMetrics(0), GetSystemMetrics(1));
 
     [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+    private const uint LeftDown = 0x0002, LeftUp = 0x0004;
+    [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
     [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
     [DllImport("user32.dll")] private static extern bool SetProcessDpiAwarenessContext(int value);
 
@@ -622,6 +790,20 @@ internal static class Program
         public bool HasExited { get { try { return _process.HasExited; } catch (Exception) { return true; } } }
         public int? ExitCode { get { try { return _process.ExitCode; } catch (Exception) { return null; } } }
         public AutomationElement? MainWindow() => WaitWindow();
+        // The settings window is a second top-level window of the same process, told apart by its title.
+        public AutomationElement? SettingsWindow()
+        {
+            var condition = new AndCondition(
+                new PropertyCondition(AutomationElement.ProcessIdProperty, _process.Id),
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Window));
+            try
+            {
+                foreach (AutomationElement element in AutomationElement.RootElement.FindAll(TreeScope.Children, condition))
+                    if (element.Current.Name is { } name && (name.Contains("设置") || name.Contains("Settings"))) return element;
+            }
+            catch (ElementNotAvailableException) { }
+            return null;
+        }
         private AutomationElement? WaitWindow()
         {
             var condition = new AndCondition(

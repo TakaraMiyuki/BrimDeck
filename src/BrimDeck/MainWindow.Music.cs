@@ -134,7 +134,9 @@ public partial class MainWindow
         EnteringExtension = arriving >= 0 && animate;
         try { ShowPage(page, animatePage: changed && _expanded && !_preview); }
         finally { EnteringExtension = false; }
-        bool back = DeckPages.Order.ToList().IndexOf(page) < DeckPages.Order.ToList().IndexOf(before);
+        // Which way the pages slide: the reader's own order decides it, so a plugin dragged to the left now slides in from the left.
+        var order = DeckPages.Order(Settings);
+        bool back = order.IndexOf(page) < order.IndexOf(before);
         if (arriving is var extension and >= 0)
         {
             // The page switch's own arrival cannot animate a WebView through WPF opacity: the plugin page arrives by
@@ -195,7 +197,7 @@ public partial class MainWindow
         if (Settings.MouseWheel == MouseWheelAction.Volume) { WheelVolume(e.Delta); e.Handled = true; return; }
         var shown = DeckPages.Visible(Settings);
         if (shown.Count < 2) return;
-        int at = shown.ToList().IndexOf(CurrentPage);
+        int at = shown.IndexOf(CurrentPage);
         if (at < 0) return;
         int next = e.Delta > 0 ? at - 1 : at + 1;
         if (next < 0 || next >= shown.Count) return;
@@ -242,6 +244,12 @@ public partial class MainWindow
             _extensionButtons[slot] = button;
             PageButtons.Children.Add(button);
         }
+        // Adding puts a tab at the end of the line, which is where a rebuilt one does not belong: a reload replaces a
+        // single slot, drops that one tab and makes it again. The order laid out here is the order the wheel walks, read
+        // from the same function — two orders is exactly the bug this loop exists to prevent.
+        foreach (var placed in DeckPages.Order(Settings).Where(page => DeckPages.SlotOf(page) >= 0)
+                     .Select(page => _extensionButtons[DeckPages.SlotOf(page)]).OfType<Button>())
+        { PageButtons.Children.Remove(placed); PageButtons.Children.Add(placed); }
     }
     private readonly Button?[] _extensionButtons = new Button?[4];
     // Called when the interface language changes: a tab's tooltip and accessible name are text, so the tabs are made again.

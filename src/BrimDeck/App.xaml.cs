@@ -189,6 +189,12 @@ public partial class App : Application
         bool dataChanged = settings.IncludeWsl != Settings.IncludeWsl || !settings.RequiredProviders.SetEquals(Settings.RequiredProviders) ||
             !settings.EnabledApps.Select(e => e.ConfigurationKey).ToHashSet().SetEquals(Settings.EnabledApps.Select(e => e.ConfigurationKey));
         bool syncEnabled = settings.UsageAutoSync && !Settings.UsageAutoSync;
+        // The reader can arrange the plugin pages themselves, which moves the tabs in the panel's page switch. Only the
+        // places count: a row appearing because a switch was flipped or a plugin saved a value moves nothing.
+        static (int Order, string Id)[] Arrangement(DeckSettings s) =>
+            s.Extensions.Where(entry => entry.Order >= 0).OrderBy(entry => entry.Order)
+                .Select(entry => (entry.Order, entry.Id)).ToArray();
+        bool orderChanged = !Arrangement(settings).SequenceEqual(Arrangement(Settings));
         // A new collapsed style morphs every panel's surface into its form (MainWindow.MorphShape).
         bool styleChanged = settings.Style != Settings.Style;
         settings.Normalize(); Settings = settings;
@@ -204,6 +210,9 @@ public partial class App : Application
         PanelTheme.Use(settings);
         IslandExtensions.SetPalette(settings);
         AssignDisplays();
+        // The switch is made again before the panel reads its settings: the tabs are laid out in the order the reader
+        // arranged, and a page's own geometry is measured against where its tab now stands.
+        if (orderChanged) foreach (var deck in Decks.ToList()) deck.RefreshExtensionButtons();
         foreach (var deck in Decks.ToList()) { if (styleChanged) deck.MorphShape(); else deck.ApplySettings(); }
         // A page's own switch takes effect at once, closing or reopening what its extension reads.
         foreach (var deck in Decks.ToList()) deck.UpdateMonitorDemand();
