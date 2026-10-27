@@ -11,7 +11,7 @@ namespace BrimDeck;
 // Generation counts the changes, so panels can tell that what they built is out of date.
 internal static class PanelTheme
 {
-    public static string Folder { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BrimDeck", "themes");
+    public static string Folder { get; } = Path.Combine(AppPaths.Data, "themes");
     public static PanelPalette Current { get; private set; } = PanelThemes.Resolve(PanelThemes.BuiltIn(PanelThemes.Dark)!);
     // The theme on screen. While the chosen theme file has an error, this is still its last good version (see Use).
     public static PanelThemeInfo ShownTheme { get; private set; } = PanelThemes.BuiltIn(PanelThemes.Dark)!;

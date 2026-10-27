@@ -55,7 +55,9 @@ public partial class App : Application
     {
         base.OnStartup(e);
         Resources[SystemParameters.VerticalScrollBarWidthKey] = 7.0;
-        var suffix = Environment.UserName;
+        // A profile moved with --data-dir is an instance of its own: two profiles (the installed copy and a test run)
+        // can be open together, and the second instance of the same profile still leaves at once.
+        var suffix = Environment.UserName + (AppPaths.IsOverridden ? "." + AppPaths.ProfileTag : "");
         var eventName = "Local\\BrimDeck.Settings." + suffix;
         _mutex = new Mutex(true, "Local\\BrimDeck.Instance." + suffix, out var first);
         if (!first)
@@ -65,7 +67,9 @@ public partial class App : Application
         }
         SetCurrentProcessExplicitAppUserModelID("BrimDeck.Desktop");
         RecordCrashes();
-        var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BrimDeck");
+        var folder = AppPaths.Data;
+        if (AppPaths.LastError is { } dataError)
+            try { File.AppendAllText(Path.Combine(folder, "crash.log"), $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}] {dataError}\n\n"); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         Store = new SettingsStore(folder); Settings = Store.Load();
         UseLanguage();
         PanelTheme.Use(Settings);
@@ -100,7 +104,7 @@ public partial class App : Application
     // errors on the UI thread are logged and the app keeps running, and unobserved task errors are only logged.
     private void RecordCrashes()
     {
-        var log = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BrimDeck", "crash.log");
+        var log = Path.Combine(AppPaths.Data, "crash.log");
         void Write(object error)
         {
             try

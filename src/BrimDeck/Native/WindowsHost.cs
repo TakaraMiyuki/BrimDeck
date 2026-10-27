@@ -120,7 +120,7 @@ public sealed class WindowsHost : IDisposable
     {
         try
         {
-            var file = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BrimDeck", "zorder.log");
+            var file = Path.Combine(AppPaths.Data, "zorder.log");
             var folder = Path.GetDirectoryName(file);
             if (folder is { Length: > 0 }) Directory.CreateDirectory(folder);
             if (File.Exists(file) && new FileInfo(file).Length >= OrderLogLimit)
