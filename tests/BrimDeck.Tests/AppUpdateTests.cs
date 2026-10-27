@@ -66,13 +66,15 @@ internal static class AppUpdateTests
         var backend = new UpdateFixture();
         var service = new AppUpdates(backend, folder, () => now);
         await service.CheckInBackgroundAsync(true);
-        check("no background check before 90 seconds", backend.Checks == 0);
+        check("no background check before 90 seconds", backend.Checks == 0 && !service.BackgroundCheckDue);
         now = start.AddSeconds(90); await service.CheckInBackgroundAsync(false);
-        check("offline skips a due background check", backend.Checks == 0);
+        // Due is answered without asking the network: the clock is the expensive question's only reason to be called,
+        // and offline it would have listed every adapter to be told the check is not allowed to run anyway.
+        check("offline skips a due background check", backend.Checks == 0 && service.BackgroundCheckDue);
         await service.CheckInBackgroundAsync(true);
         check("first background check runs 90 seconds after startup", backend.Checks == 1 && service.NoticeVersion == "0.2.0");
         now = start.AddHours(6); await service.CheckInBackgroundAsync(true);
-        check("the next background check waits 6 hours after a success", backend.Checks == 1);
+        check("the next background check waits 6 hours after a success", backend.Checks == 1 && !service.BackgroundCheckDue);
         now = start.AddSeconds(90).AddHours(6); await service.CheckInBackgroundAsync(true);
         check("background checks repeat every 6 hours", backend.Checks == 2);
         backend.FailCheck = true;
@@ -100,7 +102,7 @@ internal static class AppUpdateTests
         await restarted.CheckInBackgroundAsync(true); now = now.AddSeconds(90); await restarted.CheckInBackgroundAsync(true);
         check("the last success survives a restart and skips the startup check", backend.Checks == 8 && restarted.LastChecked == service.LastChecked && restarted.NoticeVersion == "0.2.0");
         restarted.AutoCheck = false; now = now.AddHours(7); await restarted.CheckInBackgroundAsync(true); await restarted.CheckAsync(false);
-        check("turning automatic checks off stops background and open-settings checks", backend.Checks == 8);
+        check("turning automatic checks off stops background and open-settings checks", backend.Checks == 8 && !restarted.BackgroundCheckDue);
         await restarted.CheckAsync(true); restarted.SkipVersion();
         check("a skipped version hides the notice and the prompt", backend.Checks == 9 && restarted.NoticeVersion is null && !restarted.ShouldPrompt(true, true));
         check("the skipped version and the automatic setting persist", new AppUpdates(backend, folder, () => now) is { AutoCheck: false, NoticeVersion: null });

@@ -134,6 +134,13 @@ public sealed class AppUpdates
     }
 
     // Called by the panel's minute clock, after a network change and after waking from sleep.
+    // Whether a background check could start now, without asking anything slow to answer. The clock asks this first
+    // because the alternative is worse: deciding to report "not for hours yet" by listing every network adapter, which
+    // costs tens of milliseconds on a machine with many virtual ones — sixty times an hour, forever. Only when a check
+    // really is due is the network worth querying, and CheckInBackgroundAsync applies these guards again itself.
+    public bool BackgroundCheckDue => _check is not { IsCompleted: false } && AutoCheck && _clock() >= NextBackgroundCheck
+        && Stage is not (AppUpdateStage.Downloading or AppUpdateStage.Ready or AppUpdateStage.Installing);
+
     public Task CheckInBackgroundAsync(bool networkAvailable, CancellationToken cancellation = default)
     {
         if (_check is { IsCompleted: false }) return _check;

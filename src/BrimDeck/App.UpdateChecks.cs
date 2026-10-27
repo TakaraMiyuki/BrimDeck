@@ -30,9 +30,10 @@ public partial class App
 
     internal void CheckUpdatesIfDue()
     {
-        if (Exiting || !_updateEvents) return;
-        // Asking whether any network is up lists every adapter, which took over 100 ms on the UI thread with many virtual
-        // adapters; it runs on the thread pool, and the check itself was already in the background.
+        // The cheap question first, and only when it says "due" the expensive one: asking whether any network is up
+        // lists every adapter, which took over 100 ms on the UI thread with many virtual ones. It runs on the thread
+        // pool either way, but six hundred times a day it has nothing to answer.
+        if (Exiting || !_updateEvents || !Updates.BackgroundCheckDue) return;
         var lifetime = Lifetime.Token;
         _ = Task.Run(() =>
         {
