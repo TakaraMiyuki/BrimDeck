@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; }
+  body {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    color: #f1f1f4; user-select: none; overflow: hidden;
+  }
+  #time { font-size: 44px; font-weight: 600; letter-spacing: 2px; }
+  #date { margin-top: 6px; font-size: 13px; color: #8e8e93; }
+  #visits { position: absolute; right: 8px; bottom: 6px; font-size: 10px; color: #8e8e93; opacity: .8; }
+</style>
+</head>
+<body>
+  <div id="time">--:--</div>
+  <div id="date"></div>
+  <div id="visits"></div>
+<script>
+  // The clock is the smallest real plugin: it draws with the host's colors, ticks only while some panel shows it,
+  // and hands a little state over on hide so the visit count survives the page being reclaimed. Every use of the
+  // bridge degrades gracefully, so the same file opens as an ordinary page in any browser while developing.
+  var shown = true, visits = 0, timer = null;
+
+  function paint() {
+    var now = new Date();
+    document.getElementById('time').textContent =
+      String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    var days = ['日', '一', '二', '三', '四', '五', '六'];
+    var date = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    document.getElementById('date').textContent = date + ' 星期' + days[now.getDay()];
+  }
+
+  function applyColors(colors) {
+    if (!colors) return;
+    document.getElementById('time').style.color = colors.Primary;
+    document.getElementById('date').style.color = colors.Tertiary;
+    document.getElementById('visits').style.color = colors.Tertiary;
+  }
+
+  function tick(on) {
+    if (on === shown && timer) return;
+    shown = on;
+    if (timer) { clearInterval(timer); timer = null; }
+    if (shown) { paint(); timer = setInterval(paint, 1000); }
+  }
+
+  if (window.brimdeck) {
+    brimdeck.on('init', function (init) {
+      applyColors(init.colors);
+      visits = (init.state && init.state.visits || 0) + 1;
+      document.getElementById('visits').textContent = '第 ' + visits + ' 次显示';
+      tick(init.shown);
+    });
+    brimdeck.on('colors', applyColors);
+    brimdeck.on('visibility', tick);
+    window.addEventListener('beforeunload', function () { brimdeck.saveState({ visits: visits }); });
+    setInterval(function () { if (shown) brimdeck.saveState({ visits: visits }); }, 5000);
+  } else {
+    tick(true); // opened in a plain browser: the same page, without the bridge
+  }
+</script>
+</body>
+</html>

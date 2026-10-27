@@ -292,8 +292,43 @@ static class SystemMonitorTests
             wheelOff.MouseWheel == MouseWheelAction.None && wheelOn.MouseWheel == MouseWheelAction.Pages
             && !System.Text.Json.JsonSerializer.Serialize(wheelOff).Contains("MouseWheelPages"));
         check("The wheel: enum values stay saved as before", (int)MouseWheelAction.None == 0 && (int)MouseWheelAction.Pages == 1 && (int)MouseWheelAction.Volume == 2);
+        // The extension slots: occupied by the host's word, shown by their own entry, sized by it too.
+        var hooks = new DeckSettings { Extensions = [new ExtensionPageSettings("demo") { Shown = false }, new ExtensionPageSettings("sized") { Width = 700, Height = 300 }] };
+        try
+        {
+            DeckPages.SlotOccupied = slot => slot is 0 or 1;
+            DeckPages.SlotId = slot => slot is 0 ? "demo" : slot == 1 ? "sized" : null;
+            check("Pages: an occupied slot without an entry is shown by default",
+                !DeckPages.Shown(hooks, DeckPage.Extension0) && DeckPages.Shown(hooks, DeckPage.Extension1) && !DeckPages.Shown(hooks, DeckPage.Extension2));
+            check("Pages: an extension page keeps its own size",
+                DeckPages.Size(hooks, DeckPage.Extension1) == (700, 300) && DeckPages.Size(hooks, DeckPage.Extension2) == ExtensionSizes.Default);
+            DeckPages.SetSize(hooks, DeckPage.Extension1, 500, 200);
+            check("Pages: a drag resizes the extension page's own entry",
+                DeckPages.Size(hooks, DeckPage.Extension1) == (500, 200) && hooks.Extensions[1] is { Id: "sized", Width: 500 });
+            // A plugin can say how small its page may go; the host keeps the drag and the saved size above that.
+            DeckPages.SlotMinimum = slot => slot == 1 ? (620, 240) : (0, 0);
+            check("Pages: a plugin's own minimum raises that page's limits",
+                DeckPages.Limits(hooks, DeckPage.Extension1) is (>= 620, _, >= 240, _)
+                && DeckPages.Limits(hooks, DeckPage.Extension0).MinWidth == DeckPages.MinWidth
+                && DeckPages.Limits(hooks, DeckPage.Music).MinHeight == DeckPages.MinHeight);
+            DeckPages.SetSize(hooks, DeckPage.Extension1, 571, 199);
+            check("Pages: a drag that would clip the plugin stops at its minimum",
+                DeckPages.Size(hooks, DeckPage.Extension1) == (620, 240));
+            hooks.Extensions[1] = hooks.Extensions[1] with { Width = 500, Height = 180 };
+            check("Pages: a size saved before the plugin asked for room is read back at that floor",
+                DeckPages.Size(hooks, DeckPage.Extension1) == (620, 240));
+            DeckPages.SlotMinimum = slot => slot == 1 ? (4000, 4000) : (0, 0);
+            check("Pages: an ask beyond a page's ceiling is read as that ceiling",
+                DeckPages.Limits(hooks, DeckPage.Extension1) == (DeckPages.MaxWidth, DeckPages.MaxWidth, DeckPages.MaxHeight, DeckPages.MaxHeight)
+                && DeckPages.Limits(hooks, DeckPage.Extension0).MinWidth == DeckPages.MinWidth);
+            DeckPages.SlotMinimum = slot => slot == 2 ? (700, 300) : (0, 0);
+            check("Pages: a plugin with no size saved yet starts at its floor, not below it",
+                DeckPages.Size(hooks, DeckPage.Extension2) == (700, 300) && DeckPages.Size(hooks, DeckPage.Extension3) == ExtensionSizes.Default);
+        }
+        finally { DeckPages.SlotOccupied = null; DeckPages.SlotId = null; DeckPages.SlotMinimum = null; }
         check("Pages: opening choices", DeckPages.Opening(DefaultDeckPage.Monitor) == DeckPage.Monitor && DeckPages.Opening(DefaultDeckPage.Last) is null
-            && DeckPages.Opening(DefaultDeckPage.Usage) == DeckPage.Usage && DeckPages.Opening(DefaultDeckPage.Music) == DeckPage.Music);
+            && DeckPages.Opening(DefaultDeckPage.Usage) == DeckPage.Usage && DeckPages.Opening(DefaultDeckPage.Music) == DeckPage.Music
+            && DeckPages.Opening(DefaultDeckPage.Extension0) == DeckPage.Extension0);
         var sizes = new DeckSettings { Width = 500, Height = 150, MusicWidth = 700, MusicHeight = 180, MonitorWidth = 600, MonitorHeight = 300 };
         check("Pages: the window holds the largest shown page", DeckPages.Largest(sizes) == (700, 300));
         sizes.MusicPage = false; sizes.MonitorPage = false;

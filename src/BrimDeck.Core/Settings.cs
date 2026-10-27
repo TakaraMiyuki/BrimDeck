@@ -32,8 +32,9 @@ public sealed record FullscreenRule(string Name = "", string Path = "")
 public enum ProviderId { Claude, Codex, Antigravity, Cursor, GlmChina, NewApi, Sub2Api, Custom, ZCode = 10, GlmGlobal = 11, Dsh = 12, DeepSeek = 13, GrokBot = 14, Kimi = 15, KimiApi = 16 }
 public enum SettingsTheme { System, Light, Dark }
 // Pages are saved as numbers, so new members go at the end; their order in the page switch is DeckPages.Order.
-public enum DeckPage { Usage, Music, Monitor }
-public enum DefaultDeckPage { Last, Usage, Music, Monitor }
+// Extension0..3 are the slots an extension page can occupy; the app loads the extensions and fills them in order.
+public enum DeckPage { Usage, Music, Monitor, Extension0, Extension1, Extension2, Extension3 }
+public enum DefaultDeckPage { Last, Usage, Music, Monitor, Extension0, Extension1, Extension2, Extension3 }
 // What the mouse wheel does over the expanded panel. Saved as numbers, so new members go at the end.
 public enum MouseWheelAction { None, Pages, Volume }
 public enum CompactMusicText { None, Title, Lyrics }
@@ -189,6 +190,19 @@ public static class MonitorSizes
     { PanelSize.Compact => (480, 160), PanelSize.Spacious => (860, 320), _ => Default };
 }
 
+// One extension slot's own page settings: whether its tab is on the island, and the page's size. The id is the
+// extension's; an entry whose extension is gone is kept, so a return restores the page as it was.
+public sealed record ExtensionPageSettings(string Id = "", bool Shown = true, double Width = 440, double Height = 160);
+
+// The size an extension page starts at, and its quick sizes: snug by default, with roomier steps for pages that
+// draw more. An extension's own settings entry carries what the user chose.
+public static class ExtensionSizes
+{
+    public static readonly (double Width, double Height) Default = (440, 160);
+    public static (double Width, double Height) For(PanelSize size) => size switch
+    { PanelSize.Compact => (440, 160), PanelSize.Spacious => (660, 260), _ => (520, 200) };
+}
+
 public sealed class DeckSettings
 {
     private List<AppEntry>? _apps;
@@ -285,6 +299,7 @@ public sealed class DeckSettings
     public double MonitorWidth { get; set; } = MonitorSizes.Default.Width;
     public double MonitorHeight { get; set; } = MonitorSizes.Default.Height;
     public MonitorPalette MonitorPalette { get; set; } = MonitorPalette.Theme;
+    public List<ExtensionPageSettings> Extensions { get; set; } = [];
     // The Custom scheme's colors; kept while another scheme is chosen.
     public MonitorCustomColors MonitorCustomColors { get; set; } = new();
     // The collapsed readings' colors at the warning and critical levels (ReadingLevels), "#RRGGBB", or null for the panel
@@ -415,6 +430,7 @@ public sealed class DeckSettings
         copy.DisplayMonitors = [.. DisplayMonitors ?? []];
         copy.ThemeChoices = (ThemeChoices ?? []).ToDictionary(pair => pair.Key, pair => pair.Value.Copy());
         copy.FullscreenRules = FullscreenRules.Select(rule => rule with { }).ToList();
+        copy.Extensions = Extensions.Select(entry => entry with { }).ToList();
         return copy;
     }
     public void Normalize()
@@ -444,6 +460,13 @@ public sealed class DeckSettings
         MusicHeight = double.IsFinite(MusicHeight) ? Math.Clamp(MusicHeight, DeckPages.MinHeight, DeckPages.MaxHeight) : 200;
         MonitorWidth = double.IsFinite(MonitorWidth) ? Math.Clamp(MonitorWidth, DeckPages.MinWidth, DeckPages.MaxWidth) : MonitorSizes.Default.Width;
         MonitorHeight = double.IsFinite(MonitorHeight) ? Math.Clamp(MonitorHeight, DeckPages.MinHeight, DeckPages.MaxHeight) : MonitorSizes.Default.Height;
+        Extensions = (Extensions ?? []).Where(e => e is not null && !string.IsNullOrWhiteSpace(e.Id))
+            .Select(e => e with
+            {
+                Width = double.IsFinite(e.Width) ? Math.Clamp(e.Width, DeckPages.MinWidth, DeckPages.MaxWidth) : ExtensionSizes.Default.Width,
+                Height = double.IsFinite(e.Height) ? Math.Clamp(e.Height, DeckPages.MinHeight, DeckPages.MaxHeight) : ExtensionSizes.Default.Height
+            })
+            .DistinctBy(e => e.Id, StringComparer.Ordinal).ToList();
         if (!Enum.IsDefined(MonitorPalette)) MonitorPalette = MonitorPalette.Theme;
         MonitorCustomColors ??= new();
         MonitorCustomColors.Normalize();

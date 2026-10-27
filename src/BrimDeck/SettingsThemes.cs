@@ -17,7 +17,7 @@ namespace BrimDeck;
 // saving a file in the themes folder reloads it, so a theme can be edited with the panel beside it.
 public sealed partial class SettingsWindow
 {
-    internal const int ThemePage = 8, MonitorSettingsPage = 9;
+    internal const int ThemePage = 8, MonitorSettingsPage = 9, PluginsPageNumber = 10;
     private FileSystemWatcher? _themeWatcher;
     private DispatcherTimer? _themeReload;
     // The themes folder as last read (file names, sizes and times), so a watcher event that changed nothing reloads nothing.

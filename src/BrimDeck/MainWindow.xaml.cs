@@ -112,6 +112,7 @@ public partial class MainWindow : Window
             if (_expanded && !_preview) PointerChanged(_pointerInside);
         }) { Interval = TimeSpan.FromSeconds(1) };
         InitializeComponent();
+        BuildExtensionButtons();
         // Out of sight until the boot (or, without animations, until it has its place): the window shows before it is placed.
         HoverZone.Opacity = 0;
         _handover = new PageHandover(LeavingContent);
@@ -123,7 +124,19 @@ public partial class MainWindow : Window
         _refresh.Tick += async (_, _) => await RefreshAutomaticallyAsync();
         _clock.Tick += (_, _) => { UpdateClock(); ScheduleClock(); if (_expanded) RenderUsage(); if (_lead is null) _app.CheckUpdatesIfDue(); };
         _alertTimer.Tick += (_, _) => { _alertTimer.Stop(); _alert = null; RenderCompact(); if (!_expanded) SetExpanded(false); };
-        _host.ContextChanged += context => { _context = context; if (!_preview && _detailPopup is null && _popupReturnArea is null && MediaSourceButton.ContextMenu?.IsOpen != true) _expanded = false; ApplySettings(true); };
+        _host.ContextChanged += context =>
+        {
+            ExtensionLog.Write("panel: context " + context + " expanded=" + _expanded);
+            _context = context;
+            if (!_preview && _detailPopup is null && _popupReturnArea is null && MediaSourceButton.ContextMenu?.IsOpen != true)
+            {
+                // The app's rules put the panel away without the expand path running, so the pages would keep waiting
+                // for a panel that is already gone: the reclaim grace starts here too.
+                _expanded = false;
+                _app.PanelUseChanged();
+            }
+            ApplySettings(true);
+        };
         // The app under the same context changed. Only the app rules' answer can differ, so only a changed answer is
         // re-applied: collapsed, the shape crosses to it with the same animation a context change uses; expanded, it is
         // applied at once, so switching windows does not replay the expand animation. An unchanged answer re-applies
@@ -482,6 +495,12 @@ public partial class MainWindow : Window
         if (expanded && !_expanded) _handover.Drop();
         bool wasExpanded = _expanded;
         _expanded = expanded;
+        if (wasExpanded != _expanded) ExtensionLog.Write("panel: expanded=" + _expanded + " page=" + CurrentPage + " context=" + _context);
+        // Opening the panel builds the plugin pages' views before the first switch to them, so no switch pays a cold
+        // WebView. Building is skipped while collapsed — a closed panel needs no pages. The reclaim of pages nobody
+        // watches also follows this: an open panel keeps its pages, a closed one gives them up after the grace.
+        if (expanded && !wasExpanded) EnsureExtensionViews();
+        if (wasExpanded != _expanded) _app.PanelUseChanged();
         _escapeDismissal?.SetEnabled(expanded && !_preview);
         if (!expanded) { CloseSourceMenu(); _popupReturnArea = null; _leave.Stop(); _pageSwitchHold.Stop(); _detailPopup?.Close(); }
         if (wasExpanded && !expanded) { HotkeyPanelCollapsed(); _app.RequestTrim(); }

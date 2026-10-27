@@ -37,6 +37,8 @@ public partial class App : Application
     private readonly HashSet<MainWindow> _presentingMedia = [];
     // The system monitor page's readings, shared by every panel; created when a panel first shows the page.
     internal SystemSampler? Monitor { get; private set; }
+    // Which panels are showing each extension's page; an extension works while any of them is.
+    private readonly HashSet<MainWindow>[] _presentingExtension = [ [], [], [], [] ];
     internal event Action<MonitorSnapshot>? MonitorUpdated;
     private readonly HashSet<MainWindow> _presentingMonitor = [], _stripMonitor = [];
     public CancellationTokenSource Lifetime { get; } = new();
@@ -73,6 +75,17 @@ public partial class App : Application
         Store = new SettingsStore(folder); Settings = Store.Load();
         UseLanguage();
         PanelTheme.Use(Settings);
+        IslandExtensions.SetPalette(Settings);
+        // The host is started once the single-instance check has passed and the language and theme are current: a second
+        // instance leaves before running any plugin code, and the first views get the saved palette.
+        IslandExtensions.Load();
+        IslandExtensions.ExtensionsChanged += slots =>
+        {
+            // A replaced instance starts knowing nothing; the panels showing its page tell it again.
+            foreach (var slot in slots)
+                if (_presentingExtension[slot].Count > 0) IslandExtensions.Notify(slot, true);
+            foreach (var deck in Decks.ToList()) deck.OnExtensionsChanged(slots);
+        };
         // "跟随系统" follows the Windows app theme while BrimDeck runs.
         Microsoft.Win32.SystemEvents.UserPreferenceChanged += SystemThemeChanged;
         // The language a first start takes from Windows is kept, even if the display language changes later.
@@ -124,6 +137,8 @@ public partial class App : Application
     private void UseLanguage()
     {
         Loc.Use(Settings.Language);
+        // The extension pages hear the language as a push, the same way they hear the palette.
+        WebRuntime.SetLanguage(Loc.IsEnglish);
         Resources["PinSourceName"] = Loc.T("固定显示", "Pin");
         Resources["UnpinSourceName"] = Loc.T("取消固定", "Unpin");
     }
@@ -171,10 +186,18 @@ public partial class App : Application
         ApplyHotkeys();
         // Statuses and notes are worded when the data is read, so a new language reads the data again.
         bool languageChanged = Loc.Normalize(settings.Language) != Loc.Language;
-        if (languageChanged) UseLanguage();
+        if (languageChanged)
+        {
+            UseLanguage();
+            // The extension tabs carry the language too: their tooltip and accessible name.
+            foreach (var deck in Decks.ToList()) deck.RefreshExtensionButtons();
+        }
         PanelTheme.Use(settings);
+        IslandExtensions.SetPalette(settings);
         AssignDisplays();
         foreach (var deck in Decks.ToList()) { if (styleChanged) deck.MorphShape(); else deck.ApplySettings(); }
+        // A page's own switch takes effect at once, closing or reopening what its extension reads.
+        foreach (var deck in Decks.ToList()) deck.UpdateMonitorDemand();
         QueueSave();
         CollapsedChanged();
         if (dataChanged || syncEnabled || languageChanged) _ = Deck.RefreshAutomaticallyAsync(queueIfBusy: true);
@@ -198,6 +221,8 @@ public partial class App : Application
     {
         var previous = PanelTheme.Current;
         if (!PanelTheme.Use(Settings, reload, systemChanged)) return;
+        // The extension pages are drawn in the theme's text and surface colors, so a new theme gives them new ones.
+        IslandExtensions.SetPalette(Settings);
         if (systemChanged && PanelThemes.CarryGradient(previous, PanelTheme.Current, Settings)) QueueSave();
         foreach (var deck in Decks.ToList()) deck.ApplySettings();
         if (!reload) _settingsWindow?.PanelThemeChanged();
@@ -259,8 +284,24 @@ public partial class App : Application
         if (Monitor is null) { Monitor = new SystemSampler(Dispatcher); Monitor.Updated += snapshot => MonitorUpdated?.Invoke(snapshot); }
         Monitor.SetDemand(wanted, Settings.MonitorInterval, _presentingMonitor.Count > 0);
     }
+    // An extension's page being shown or stopped being shown by one panel; the extension learns whether any panel
+    // shows it, and nothing else — the page switch and the loading decide the rest.
+    internal void PresentExtension(MainWindow deck, int slot, bool shown)
+    {
+        if (slot < 0 || slot >= _presentingExtension.Length) return;
+        bool before = _presentingExtension[slot].Count > 0;
+        if (shown) _presentingExtension[slot].Add(deck); else _presentingExtension[slot].Remove(deck);
+        bool after = _presentingExtension[slot].Count > 0;
+        // Only the change of the answer is news: a panel re-rendering while another already shows the page is not.
+        if (before != after) IslandExtensions.Notify(slot, after && !Exiting);
+    }
     // Settings changed outside UpdateSettings are written after the same short pause instead of immediately.
     public void QueueSave() { _save.Stop(); _save.Start(); }
+
+    // Told by a panel whenever it opens or closes (MainWindow.SetExpanded, window close): while any panel is open the
+    // pre-built plugin pages stay ready to switch to; once the last one closes, the pages nobody watches are
+    // reclaimed after the usual grace.
+    internal void PanelUseChanged() => IslandExtensions.PanelInUse(Decks.Any(deck => deck.IsExpanded));
     // The settings are turned into text here, where they live, and written on the thread pool: writing the file (and the virus
     // scan that follows a write) took 60 ms and more, which showed as a stall after every page switch. Writes run one after
     // another in the order they were asked for, so the newest settings always land last.
@@ -305,7 +346,9 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         Exiting = true; Lifetime.Cancel(); _save.Stop(); FinishWriting(); StopBackgroundUpdates(); Microsoft.Win32.SystemEvents.UserPreferenceChanged -= SystemThemeChanged; _tray?.Dispose(); DisposeHotkeys(); _listener?.Unregister(null); _settingsEvent?.Dispose();
-        Media?.Dispose(); Monitor?.Dispose(); Lyrics.Dispose(); Prices?.Dispose(); _mutex?.Dispose(); base.OnExit(e);
+        Media?.Dispose(); Monitor?.Dispose(); Lyrics.Dispose(); Prices?.Dispose(); _mutex?.Dispose();
+        for (int slot = 0; slot < IslandExtensions.Slots.Length; slot++) IslandExtensions.Slots[slot]?.SetDemand(false);
+        base.OnExit(e);
     }
     [DllImport("shell32", CharSet = CharSet.Unicode)] private static extern int SetCurrentProcessExplicitAppUserModelID(string id);
 }

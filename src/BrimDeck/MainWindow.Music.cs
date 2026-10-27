@@ -74,6 +74,8 @@ public partial class MainWindow
     internal DeckPage CurrentPage => DeckPages.Resolve(Settings, _page);
     internal bool IsMusicPage => CurrentPage == DeckPage.Music;
     internal bool IsMonitorPage => CurrentPage == DeckPage.Monitor;
+    internal bool IsExtensionPage => DeckPages.SlotOf(CurrentPage) >= 0;
+    internal int ExtensionSlot => DeckPages.SlotOf(CurrentPage);
     internal bool IsUsagePage => CurrentPage == DeckPage.Usage;
     internal CompactMusicLayout? CurrentCompactLayout { get; private set; }
 
@@ -123,13 +125,35 @@ public partial class MainWindow
         bool animate = changed && _expanded && !_preview && Soft.Enabled;
         var before = CurrentPage;
         var from = PageContent(before);
-        var picture = animate ? PageHandover.Capture(from) : null;
+        // A plugin page draws on transparency over the panel's surface; its leaving picture carries the surface as
+        // its own fill, so what slides away reads as a page, not a wisp of strokes.
+        var picture = animate ? PageHandover.Capture(from, DeckPages.SlotOf(before) >= 0 ? _surface : null) : null;
         var place = PageHandover.Place(from);
-        ShowPage(page, animatePage: changed && _expanded && !_preview);
+        int arriving = DeckPages.SlotOf(page);
+        // The arriving plugin page is covered for its first frames (see VeilArrival): the show has to say so.
+        EnteringExtension = arriving >= 0 && animate;
+        try { ShowPage(page, animatePage: changed && _expanded && !_preview); }
+        finally { EnteringExtension = false; }
         bool back = DeckPages.Order.ToList().IndexOf(page) < DeckPages.Order.ToList().IndexOf(before);
-        _handover.Send(picture, place, PageContent(page), back ? Handover.Back : Handover.Forward);
+        if (arriving is var extension and >= 0)
+        {
+            // The page switch's own arrival cannot animate a WebView through WPF opacity: the plugin page arrives by
+            // an entrance the host plays inside the browser, while the page left behind leaves as a picture above it.
+            if (animate) IslandExtensions.Enter(extension, forward: !back);
+            _handover.Send(picture, place, PageContent(page), back ? Handover.Back : Handover.Forward, animateArrival: false);
+        }
+        else
+            _handover.Send(picture, place, PageContent(page), back ? Handover.Back : Handover.Forward);
     }
-    private FrameworkElement PageContent(DeckPage page) => page switch { DeckPage.Music => MusicContent, DeckPage.Monitor => MonitorContent, _ => UsageContent };
+    // The page switch's hand-over animates the content of the page it leaves and the page it enters, so every page —
+    // the extension slots included — must resolve to the grid that shows it.
+    private FrameworkElement PageContent(DeckPage page) => page switch
+    {
+        DeckPage.Music => MusicContent,
+        DeckPage.Monitor => MonitorContent,
+        DeckPage.Extension0 or DeckPage.Extension1 or DeckPage.Extension2 or DeckPage.Extension3 => ExtensionContent,
+        _ => UsageContent
+    };
     private void ShowPage(DeckPage page, bool animatePage)
     {
         _detailPopup?.Close(); _details = false; _page = page; _musicRenderKey = ""; _handover.Drop();
@@ -139,7 +163,13 @@ public partial class MainWindow
     // does; otherwise it is set in place. A switch whose buttons are not laid out yet places it once they are.
     private void PlacePageCapsule()
     {
-        var button = CurrentPage switch { DeckPage.Music => MusicPageButton, DeckPage.Monitor => MonitorPageButton, _ => AIUsageButton };
+        var button = CurrentPage switch
+        {
+            DeckPage.Music => MusicPageButton, DeckPage.Monitor => MonitorPageButton,
+            DeckPage.Extension0 or DeckPage.Extension1 or DeckPage.Extension2 or DeckPage.Extension3
+                => _extensionButtons[DeckPages.SlotOf(CurrentPage)] ?? AIUsageButton,
+            _ => AIUsageButton
+        };
         if (button.Visibility != Visibility.Visible || !button.IsMeasureValid || button.ActualWidth <= 0 || PresentationSource.FromVisual(button) is null)
         {
             if (!_capsulePending) { _capsulePending = true; Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => { _capsulePending = false; if (button.ActualWidth > 0) PlacePageCapsule(); }); }
@@ -186,6 +216,42 @@ public partial class MainWindow
 
     private void MusicPage_Click(object sender, RoutedEventArgs e) => SelectPage(DeckPage.Music);
     private void MonitorPage_Click(object sender, RoutedEventArgs e) => SelectPage(DeckPage.Monitor);
+    // The extension pages' tabs are made in code, one per occupied slot, after the fixed ones in switch order. Called
+    // again after a reload scan: a slot that already has its button keeps it, so only the new tabs are added.
+    internal void BuildExtensionButtons()
+    {
+        for (int slot = 0; slot < IslandExtensions.Slots.Length; slot++)
+        {
+            if (!IslandExtensions.Occupied(slot) || _extensionButtons[slot] is not null) continue;
+            var extension = IslandExtensions.Slots[slot]!;
+            var page = DeckPages.ExtensionPage(slot);
+            var path = new System.Windows.Shapes.Path
+            {
+                Data = IslandExtensions.SafeGlyph(extension.Glyph),
+                StrokeThickness = 1.65, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round
+            };
+            path.SetBinding(System.Windows.Shapes.Shape.StrokeProperty, new System.Windows.Data.Binding("Foreground") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.FindAncestor, typeof(Button), 1) });
+            var button = new Button
+            {
+                Style = (Style)FindResource("PanelIconButton"), Width = 28, Height = 24, Margin = new Thickness(1, 0, 0, 0),
+                Content = new Viewbox { Width = 16, Height = 16, Child = new Canvas { Width = 24, Height = 24, Children = { path } } },
+                ToolTip = IslandExtensions.Title(slot)
+            };
+            AutomationProperties.SetName(button, IslandExtensions.Title(slot));
+            button.Click += (_, _) => SelectPage(page);
+            _extensionButtons[slot] = button;
+            PageButtons.Children.Add(button);
+        }
+    }
+    private readonly Button?[] _extensionButtons = new Button?[4];
+    // Called when the interface language changes: a tab's tooltip and accessible name are text, so the tabs are made again.
+    internal void RefreshExtensionButtons()
+    {
+        foreach (var button in _extensionButtons.OfType<Button>()) PageButtons.Children.Remove(button);
+        Array.Clear(_extensionButtons);
+        BuildExtensionButtons();
+        RenderPageSwitch();
+    }
     // Where the usage page's application tabs start: after the page switch, which holds one 28 DIP button per shown page.
     private double ApplicationPagesLeft(double side) { int pages = DeckPages.Visible(Settings).Count; return side + (pages <= 1 ? 36 : 72 + 29 * (pages - 2)); }
     // The header shared by both pages (see PanelHeader). Its row holds the page's top margin, so the clock, the switch and the
@@ -201,7 +267,7 @@ public partial class MainWindow
         ToolbarRow.Height = new GridLength(header.Row);
         Toolbar.Height = header.Height;
         PageSwitch.Margin = new Thickness(header.Side, 0, 0, 0);
-        foreach (var button in new[] { AIUsageButton, MonitorPageButton, MusicPageButton })
+        foreach (var button in new[] { AIUsageButton, MonitorPageButton, MusicPageButton }.Concat(_extensionButtons.OfType<Button>()))
         {
             button.Height = header.ButtonHeight;
             // A local corner for these two buttons only; PanelIconButton keeps its 5 DIP corner elsewhere.
@@ -216,10 +282,13 @@ public partial class MainWindow
     private void RenderPageSwitch()
     {
         SetValue(SuppressMusicToolTipsProperty, IsMusicPage);
-        foreach (var control in new FrameworkElement[] { AIUsageButton, MonitorPageButton, MusicPageButton, MediaSourceButton, ClockLabel })
+        foreach (var control in new FrameworkElement[] { AIUsageButton, MonitorPageButton, MusicPageButton, MediaSourceButton, ClockLabel }.Concat(_extensionButtons.OfType<Button>()))
             ToolTipService.SetIsEnabled(control, !IsMusicPage);
         PageSwitch.Visibility = _details && IsUsagePage ? Visibility.Collapsed : Visibility.Visible;
-        foreach (var (button, page) in new[] { (AIUsageButton, DeckPage.Usage), (MusicPageButton, DeckPage.Music), (MonitorPageButton, DeckPage.Monitor) })
+        var tabs = new List<(Button Button, DeckPage Page)> { (AIUsageButton, DeckPage.Usage), (MusicPageButton, DeckPage.Music), (MonitorPageButton, DeckPage.Monitor) };
+        for (int slot = 0; slot < _extensionButtons.Length; slot++)
+            if (_extensionButtons[slot] is { } extensionButton) tabs.Add((extensionButton, DeckPages.ExtensionPage(slot)));
+        foreach (var (button, page) in tabs)
         {
             bool current = CurrentPage == page;
             button.Visibility = DeckPages.Shown(Settings, page) ? Visibility.Visible : Visibility.Collapsed;
@@ -415,7 +484,8 @@ public partial class MainWindow
         // Only a page that was on screen hands over; one that arrives by the page switch or with the panel opening comes in whole.
         bool shown = MusicContent.IsVisible && _expanded && !_preview;
         RefreshStatus();
-        UsageContent.Visibility = Visibility.Collapsed; MonitorContent.Visibility = Visibility.Collapsed; MusicContent.Visibility = Visibility.Visible;
+        UsageContent.Visibility = Visibility.Collapsed; MonitorContent.Visibility = Visibility.Collapsed; ExtensionContent.Visibility = Visibility.Visible; MusicContent.Visibility = Visibility.Visible;
+        ShowExtensionView(-1);
         ModelToolbar.Visibility = Visibility.Collapsed; ApplicationPages.Visibility = Visibility.Collapsed; ClockLabel.Visibility = Visibility.Visible;
         double h = ContentCanvas.Height, w = ContentCanvas.Width;
         var track = _mediaTrack;

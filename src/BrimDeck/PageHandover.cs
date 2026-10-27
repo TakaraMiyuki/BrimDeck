@@ -71,14 +71,21 @@ internal sealed class PageHandover
     }
 
     // A picture of a page as it is on screen, to leave in its place; null for a page that is not laid out.
-    public static Image? Capture(FrameworkElement page)
+    public static Image? Capture(FrameworkElement page, Brush? backdrop = null)
     {
         double width = page.ActualWidth, height = page.ActualHeight;
         if (!page.IsVisible || width < 1 || height < 1 || PresentationSource.FromVisual(page) is null) return null;
         var dpi = VisualTreeHelper.GetDpi(page);
         var picture = new RenderTargetBitmap((int)Math.Ceiling(width * dpi.DpiScaleX), (int)Math.Ceiling(height * dpi.DpiScaleY), dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
         var drawing = new DrawingVisual();
-        using (var context = drawing.RenderOpen()) context.DrawRectangle(Exactly(page, width, height), null, new Rect(0, 0, width, height));
+        using (var context = drawing.RenderOpen())
+        {
+            // A page that draws on transparency (a WebView plugin page over the panel's surface) would leave as a
+            // wisp of its own strokes; a backdrop fills the picture as the page itself is filled, so it reads as a
+            // page leaving, like any other.
+            if (backdrop is not null) context.DrawRectangle(backdrop, null, new Rect(0, 0, width, height));
+            context.DrawRectangle(Exactly(page, width, height), null, new Rect(0, 0, width, height));
+        }
         picture.Render(drawing);
         picture.Freeze();
         return new Image { Source = picture, Width = width, Height = height, Stretch = Stretch.None, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top };
@@ -96,11 +103,13 @@ internal sealed class PageHandover
     }
 
     // Lets a captured page leave while content arrives. The picture keeps the place the page had (Place, taken before the
-    // switch) and is centred as the page was.
-    public void Send(UIElement? picture, Thickness place, FrameworkElement content, Handover motion)
+    // switch) and is centred as the page was. Arriving content that must not be animated itself — a WebView composition
+    // page, whose content does not follow WPF opacity — is uncovered instead: it already lies beneath the leaving
+    // picture, which fades off it toward the side.
+    public void Send(UIElement? picture, Thickness place, FrameworkElement content, Handover motion, bool animateArrival = true)
     {
         if (picture is null || motion == Handover.None || !Soft.Enabled) return;
-        Begin([picture], new Thickness(0, place.Top, 0, 0), content, motion);
+        Begin([picture], new Thickness(0, place.Top, 0, 0), content, motion, animateArrival);
     }
 
     // The rebuilt content waiting for its arrival to start; it is held out of sight until then.
@@ -110,7 +119,7 @@ internal sealed class PageHandover
     // started at once lost its first part to them and jumped. Until then the old content stays as it was and the new one out
     // of sight. Timing and curve are the system monitor's (Soft.Follow): what leaves goes in about a fifth of a second, what
     // arrives takes the monitor's move.
-    private void Begin(List<UIElement> leaving, Thickness margin, FrameworkElement content, Handover motion)
+    private void Begin(List<UIElement> leaving, Thickness margin, FrameworkElement content, Handover motion, bool animateArrival = true)
     {
         Drop();
         int version = _version;
@@ -118,7 +127,7 @@ internal sealed class PageHandover
         foreach (var child in leaving) _layer.Children.Add(child);
         var shift = content.RenderTransform as TranslateTransform;
         if (shift is null || shift.IsFrozen) content.RenderTransform = shift = new TranslateTransform();
-        bool arrives = motion != Handover.Dissolve;
+        bool arrives = motion != Handover.Dissolve && animateArrival;
         if (motion == Handover.Dissolve)
         {
             // Nothing leaves; the rebuilt content brightens from faint once it has been laid out.
@@ -136,12 +145,16 @@ internal sealed class PageHandover
             var away = Soft.Fade(1, 0, leave, Soft.Follow);
             away.Completed += (_, _) => { if (_version == version) EndLeave(); };
             _layer.BeginAnimation(UIElement.OpacityProperty, away);
+            // The way out belongs to the picture whoever is arriving: a page that brings itself in inside a browser (a
+            // plugin page) still leaves with the slide, so both directions of a switch keep moving together.
+            if (motion != Handover.Morph)
+            {
+                double direction = motion == Handover.Back ? -1 : 1;
+                _layerShift.BeginAnimation(TranslateTransform.XProperty, Soft.Fade(0, -direction * Travel, leave, Soft.Follow));
+                if (arrives) shift.BeginAnimation(TranslateTransform.XProperty, Arrival(direction * Travel, 0, arrive));
+            }
             if (!arrives) return;
             content.BeginAnimation(UIElement.OpacityProperty, Arrival(0, 1, arrive));
-            if (motion == Handover.Morph) return;
-            double direction = motion == Handover.Back ? -1 : 1;
-            _layerShift.BeginAnimation(TranslateTransform.XProperty, Soft.Fade(0, -direction * Travel, leave, Soft.Follow));
-            shift.BeginAnimation(TranslateTransform.XProperty, Arrival(direction * Travel, 0, arrive));
         });
     }
 

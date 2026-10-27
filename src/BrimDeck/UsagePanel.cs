@@ -156,9 +156,13 @@ public partial class MainWindow
         if (UsageContent is null) return;
         if (IsMusicPage) { RenderMusic(); return; }
         if (IsMonitorPage) { RenderMonitor(); return; }
+        if (IsExtensionPage) { RenderExtension(); return; }
         // Only a page that was on screen hands over; one that arrives by the page switch or with the panel opening comes in whole.
         bool shown = UsageContent.IsVisible && _expanded && !_preview;
-        MusicContent.Visibility = Visibility.Collapsed; MonitorContent.Visibility = Visibility.Collapsed; UsageContent.Visibility = Visibility.Visible;
+        MusicContent.Visibility = Visibility.Collapsed; MonitorContent.Visibility = Visibility.Collapsed; ExtensionContent.Visibility = Visibility.Visible; UsageContent.Visibility = Visibility.Visible;
+        // The extension page leaves by hiding its view, not by collapsing the grid: a hidden view keeps its size, so the
+        // host can initialize every plugin page while the panel stands on another page (see EnsureExtensionViews).
+        ShowExtensionView(-1);
         if (!Settings.UsagePage) _details = false;
         RefreshStatus();
         if (_detailPopup is not null) { _flippedColumn = null; return; }
