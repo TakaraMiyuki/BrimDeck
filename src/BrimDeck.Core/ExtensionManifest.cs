@@ -6,9 +6,12 @@ namespace BrimDeck.Core;
 // A plugin folder's manifest: the manifest.json a plugin author writes, read once per scan. Everything on it is plain
 // data from a local file — no code of any kind runs while loading a plugin, which is the whole point of the web model.
 // MinWidth/MinHeight are the smallest page the plugin can show without losing content; zero means it asks for none.
+// Settings and phrases are what the host renders and speaks on the plugin's behalf; Notes lists the declared entries the
+// host could not use, so a typo costs one row rather than the plugin.
 // It lives beside the page limits that cap it, so the one input the host acts on before a browser ever sees a plugin is
 // readable, validatable and testable without a window.
-public sealed record ExtensionManifest(string Id, string TitleZh, string TitleEn, string Glyph, string Entry, double MinWidth, double MinHeight, int MinApiVersion);
+public sealed record ExtensionManifest(string Id, string TitleZh, string TitleEn, string Glyph, string Entry, double MinWidth, double MinHeight, int MinApiVersion,
+    IReadOnlyList<ExtensionSetting> Settings, IReadOnlyDictionary<string, ExtensionText> Phrases, IReadOnlyList<string> Notes);
 
 public static class ExtensionManifests
 {
@@ -62,8 +65,12 @@ public static class ExtensionManifests
             if (entry.Contains("..") || entry.Contains('\\') || Path.IsPathRooted(entry) || Uri.TryCreate(entry, UriKind.Absolute, out _))
                 return (null, "manifest.json: entry " + Loc.T("必须是插件文件夹内的相对路径", "must be a relative path inside the plugin folder"));
             if (!File.Exists(Path.Combine(folder, entry))) return (null, Loc.T("入口文件不存在：", "The entry file is missing: ") + entry);
+            // The declarations are read last and tolerated: a control the host cannot draw is dropped with a note, and the
+            // page still loads — an author's typo in one label is no reason to leave a reader without their plugin.
+            var notes = new List<string>();
+            var (settings, phrases) = ExtensionDeclarations.Read(root, notes);
             return (new ExtensionManifest(id, titleZh.Length > 0 ? titleZh : titleEn, titleEn.Length > 0 ? titleEn : titleZh, glyph, entry,
-                Min("minWidth"), Min("minHeight"), Api()), null);
+                Min("minWidth"), Min("minHeight"), Api(), settings, phrases, notes), null);
         }
         catch (Exception ex)
         {

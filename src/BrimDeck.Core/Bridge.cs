@@ -4,9 +4,13 @@ namespace BrimDeck.Core;
 // here, where both sides of the seam read the same numbers and a test can hold them to it.
 public static class Bridge
 {
-    // Raised when an event or message a page can see changes shape in a way an older page would misread. A plugin that
-    // needs a newer bridge says so with "minApiVersion" and is refused at the folder, not left showing a blank page.
-    public const int Version = 1;
+    // Raised when an event or message a page can see changes shape in a way an older page would misread, or when the host
+    // gains a capability a plugin may want to require. A plugin that needs a newer bridge says so with "minApiVersion"
+    // and is refused at the folder, not left showing a blank page.
+    // 1 — the bridge as the web host began: init, colors, language, visibility, alarm, error replies, links.
+    // 2 — declared settings and phrases: init carries settings and phrases, a settings and a phrases event follow, and a
+    //     page can write one back with setSetting.
+    public const int Version = 2;
     // What a page may hand the host to keep on its behalf. Measured in UTF-8 bytes, the unit the ceiling is named in:
     // a Chinese-heavy state costs three of those per character the page wrote.
     public const int MaximumStateBytes = 64 * 1024;

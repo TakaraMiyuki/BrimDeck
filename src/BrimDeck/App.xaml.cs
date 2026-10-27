@@ -76,6 +76,15 @@ public partial class App : Application
         UseLanguage();
         PanelTheme.Use(Settings);
         IslandExtensions.SetPalette(Settings);
+        // A plugin page that wrote one of its own declared controls reaches the file through the app, not through itself:
+        // the same queued save every other change uses, and the settings window redone so its row shows the new value.
+        // The pages of that plugin are told by the host, which does that whether the change came from a page or a click.
+        IslandExtensions.WriteValue = (id, key, value) =>
+        {
+            Settings.SetExtensionValue(id, key, value);
+            QueueSave();
+            _settingsWindow?.PluginValuesChanged();
+        };
         // The host is started once the single-instance check has passed and the language and theme are current: a second
         // instance leaves before running any plugin code, and the first views get the saved palette.
         IslandExtensions.Load();

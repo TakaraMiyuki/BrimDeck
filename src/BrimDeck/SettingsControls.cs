@@ -114,11 +114,27 @@ public sealed partial class SettingsWindow
         return new Border { Child = host, Background = UI.Brush(Inset), CornerRadius = new CornerRadius(7), Padding = new Thickness(3), Margin = new Thickness(0, 4, 0, 4) };
     }
 
-    private (Slider Slider, Border Number) NumericControls(string title, double value, double min, double max, double tick, string unit, Action<double> changed)
+    // The number editor every size and every declared setting uses. Its step decides how the value is written: a whole
+    // step shows whole numbers, a fraction shows as many places as the step itself has. snap is for controls whose
+    // author declared a grid — a plugin's number range with a step of five answers 65 to a reader who typed 63, the
+    // same way the host stores it, so the box never shows a value the plugin will not receive.
+    private (Slider Slider, Border Number) NumericControls(string title, double value, double min, double max, double tick, string unit, Action<double> changed, bool snap = false)
     {
+        var grid = double.IsFinite(tick) && tick > 0 ? tick : 1;
+        var places = Places(grid);
+        var format = places == 0 ? "0" : "0." + new string('#', places);
+        static int Places(double step)
+        {
+            for (int at = 0; at < 6; at++)
+            {
+                var scaled = step * Math.Pow(10, at);
+                if (Math.Abs(scaled - Math.Round(scaled)) < 1e-9) return at;
+            }
+            return 6;
+        }
         var slider = new Slider { Style=(Style)FindResource("SettingsSlider"),Minimum=min,Maximum=max,Value=Math.Clamp(value,min,max),
-            SmallChange=tick,LargeChange=tick*2,TickFrequency=tick,IsSnapToTickEnabled=true,IsMoveToPointEnabled=true,VerticalAlignment=VerticalAlignment.Center };
-        var input = new TextBox { Style=(Style)FindResource("SettingsNumber"),Width=40,Text=slider.Value.ToString("0",CultureInfo.InvariantCulture),VerticalAlignment=VerticalAlignment.Center };
+            SmallChange=grid,LargeChange=grid*2,TickFrequency=grid,IsSnapToTickEnabled=true,IsMoveToPointEnabled=true,VerticalAlignment=VerticalAlignment.Center };
+        var input = new TextBox { Style=(Style)FindResource("SettingsNumber"),Width=40,Text=slider.Value.ToString(format,CultureInfo.InvariantCulture),VerticalAlignment=VerticalAlignment.Center };
         AutomationProperties.SetName(slider,title); AutomationProperties.SetName(input,Loc.T(title+"数值", title+" value"));
         var line=new StackPanel {Orientation=Orientation.Horizontal};line.Children.Add(input);
         var units=TextLine(unit,10,TextTertiary);units.Margin=new Thickness(4,0,6,0);units.VerticalAlignment=VerticalAlignment.Center;line.Children.Add(units);
@@ -131,19 +147,24 @@ public sealed partial class SettingsWindow
         input.LostKeyboardFocus+=(_,_)=>chip.BorderBrush=UI.Brush(_palette.Border);
         void Set(double number)
         {
-            var next=Math.Clamp(Math.Round(number),min,max);
-            if(Math.Abs(slider.Value-next)<.01) { input.Text=next.ToString("0",CultureInfo.InvariantCulture);return; }
+            var bounded = Math.Clamp(number, min, max);
+            var next = Math.Clamp(snap
+                ? min + Math.Round((bounded - min) / grid, MidpointRounding.AwayFromZero) * grid
+                : Math.Round(bounded, places, MidpointRounding.AwayFromZero), min, max);
+            // The tolerance is a rounding guard, not a floor of its own: a declared step of 0.001 must still register as
+            // a change when the reader presses + or −, so it shrinks with the step rather than swallowing it.
+            if(Math.Abs(slider.Value-next)<Math.Min(.01,grid/100)) { input.Text=next.ToString(format,CultureInfo.InvariantCulture);return; }
             slider.Value=next;
         }
-        slider.ValueChanged+=(_,_)=>{input.Text=slider.Value.ToString("0",CultureInfo.InvariantCulture);changed(slider.Value);};
+        slider.ValueChanged+=(_,_)=>{input.Text=slider.Value.ToString(format,CultureInfo.InvariantCulture);changed(slider.Value);};
         void Commit()
         {
             if(double.TryParse(input.Text,NumberStyles.Float,CultureInfo.InvariantCulture,out var number)&&double.IsFinite(number))Set(number);
-            input.Text=slider.Value.ToString("0",CultureInfo.InvariantCulture);
+            input.Text=slider.Value.ToString(format,CultureInfo.InvariantCulture);
         }
-        minus.Click+=(_,_)=>Set(slider.Value-tick);plus.Click+=(_,_)=>Set(slider.Value+tick);
+        minus.Click+=(_,_)=>Set(slider.Value-grid);plus.Click+=(_,_)=>Set(slider.Value+grid);
         input.LostKeyboardFocus+=(_,_)=>Commit();
-        input.KeyDown+=(_,e)=>{if(e.Key==Key.Enter){Commit();e.Handled=true;}if(e.Key==Key.Escape){input.Text=slider.Value.ToString("0",CultureInfo.InvariantCulture);e.Handled=true;}};
+        input.KeyDown+=(_,e)=>{if(e.Key==Key.Enter){Commit();e.Handled=true;}if(e.Key==Key.Escape){input.Text=slider.Value.ToString(format,CultureInfo.InvariantCulture);e.Handled=true;}};
         return(slider,chip);
     }
     private FrameworkElement Dimension(string title, double value, double min, double max, Action<double> changed)

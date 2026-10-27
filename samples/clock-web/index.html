@@ -19,18 +19,45 @@
   <div id="date"></div>
   <div id="visits"></div>
 <script>
-  // The clock is the smallest real plugin: it draws with the host's colors, ticks only while some panel shows it,
-  // and hands a little state over on hide so the visit count survives the page being reclaimed. Every use of the
-  // bridge degrades gracefully, so the same file opens as an ordinary page in any browser while developing.
+  // The clock is the smallest real plugin, and now the smallest complete one: it draws with the host's colors, ticks
+  // only while some panel shows it, hands a little state over on hide — and every control and every word it shows is
+  // declared in manifest.json rather than built here. The host draws 「秒 / 字号 / 日期」 in its own settings window,
+  // speaks 「星期日 / 第 3 次显示」 in whatever language the interface uses, and the page just reads them and repaints.
+  // Click the time to watch one write go the whole way round: setSetting out, the host honouring it against the
+  // declaration, a settings event back, this file repainting from the value it was given rather than the one it asked for.
+  // The two tables below are what the page falls back to when it is opened in a plain browser with no host at all.
   var shown = true, visits = 0, timer = null;
+  var noHost = { seconds: false, size: 44, date: 'full' }; // the same defaults the manifest declares
+  var noBridge = {
+    day0: 'Sunday', day1: 'Monday', day2: 'Tuesday', day3: 'Wednesday', day4: 'Thursday', day5: 'Friday', day6: 'Saturday',
+    visits: 'Shown {n} times'
+  };
+
+  function setting(key) {
+    var value = window.brimdeck ? brimdeck.settings[key] : undefined;
+    return value === undefined ? noHost[key] : value;
+  }
+
+  function phrase(key) {
+    if (!window.brimdeck) return noBridge[key] || key;
+    return brimdeck.phrase(key); // a key the manifest left out reads back as itself: the author's name for it, not a hole
+  }
+
+  function two(n) { return String(n).padStart(2, '0'); }
 
   function paint() {
     var now = new Date();
-    document.getElementById('time').textContent =
-      String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-    var days = ['日', '一', '二', '三', '四', '五', '六'];
-    var date = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
-    document.getElementById('date').textContent = date + ' 星期' + days[now.getDay()];
+    var time = document.getElementById('time');
+    time.style.fontSize = setting('size') + 'px';
+    time.textContent = two(now.getHours()) + ':' + two(now.getMinutes()) + (setting('seconds') ? ':' + two(now.getSeconds()) : '');
+
+    var style = setting('date'), date = document.getElementById('date');
+    date.style.display = style === 'off' ? 'none' : '';
+    if (style !== 'off') {
+      date.textContent = now.getFullYear() + '-' + two(now.getMonth() + 1) + '-' + two(now.getDate())
+        + (style === 'full' ? ' ' + phrase('day' + now.getDay()) : '');
+    }
+    document.getElementById('visits').textContent = phrase('visits').replace('{n}', visits);
   }
 
   function applyColors(colors) {
@@ -51,11 +78,18 @@
     brimdeck.on('init', function (init) {
       applyColors(init.colors);
       visits = (init.state && init.state.visits || 0) + 1;
-      document.getElementById('visits').textContent = '第 ' + visits + ' 次显示';
+      document.getElementById('time').style.cursor = 'pointer';
       tick(init.shown);
     });
     brimdeck.on('colors', applyColors);
     brimdeck.on('visibility', tick);
+    // Either the numbers or the words can change while the page stays alive — a drag of the slider in the settings
+    // window, a switch of the interface language. The host only sends these when something actually moved.
+    brimdeck.on('settings', function () { if (shown) paint(); });
+    brimdeck.on('phrases', function () { if (shown) paint(); });
+    document.getElementById('time').addEventListener('click', function () {
+      brimdeck.setSetting('seconds', !setting('seconds'));
+    });
     window.addEventListener('beforeunload', function () { brimdeck.saveState({ visits: visits }); });
     setInterval(function () { if (shown) brimdeck.saveState({ visits: visits }); }, 5000);
   } else {

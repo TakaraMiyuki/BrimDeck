@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using BrimDeck.Core;
@@ -153,6 +154,31 @@ public sealed partial class SettingsWindow
         var height = Dimension(Loc.T("高度", "Height"), usedHeight, floorHeight, ceilingHeight, value => Resize(s => SetSlotSize(s, slot, null, value), page));
         height.Margin = new Thickness(20, 0, 0, 0); Grid.SetColumn(height, 1); dimensions.Children.Add(height);
         details.Children.Add(dimensions);
+        // The controls the plugin's own manifest declared. The host draws them — a reader sets a plugin up here instead
+        // of opening its folder, and an author writes no settings interface at all.
+        foreach (var row in DeclaredRows(id, IslandExtensions.Declared(slot))) details.Children.Add(row);
+        // What the author declared that the host could not use. Without this a control that vanished reads as the host
+        // ignoring it on purpose — the same reason a refused bridge message is answered.
+        var notes = IslandExtensions.Notes(slot);
+        if (notes.Count > 0)
+        {
+            var heading = TextLine(Loc.T("已忽略的声明项", "Declared entries the host skipped"), 11.5, TextTertiary);
+            heading.Margin = new Thickness(0, 8, 0, 0);
+            details.Children.Add(heading);
+            foreach (var note in notes.Take(6))
+            {
+                var line = TextLine(note, 11.5, TextTertiary);
+                line.TextWrapping = TextWrapping.Wrap;
+                line.Margin = new Thickness(0, 2, 0, 0);
+                details.Children.Add(line);
+            }
+            if (notes.Count > 6)
+            {
+                var more = TextLine(Loc.T($"另有 {notes.Count - 6} 条", $"{notes.Count - 6} more"), 11.5, TextTertiary);
+                more.Margin = new Thickness(0, 2, 0, 0);
+                details.Children.Add(more);
+            }
+        }
         var source = TextLine(id + (file.Length > 0 ? " · " + file : ""), 11.5, TextTertiary);
         source.Margin = new Thickness(0, 2, 0, 0);
         if (file.Length > 0) source.ToolTip = IslandExtensions.Folder + "\\" + file;
@@ -182,4 +208,57 @@ public sealed partial class SettingsWindow
         });
         RefreshPlugins();
     }
+
+    // One row per declared control, in the order the manifest wrote them. The declaration is the whole design: the
+    // labels are the host's own words in the interface's language, the number's range and step come from the author,
+    // and a plugin with nothing declared gets the row exactly as it was.
+    private IEnumerable<FrameworkElement> DeclaredRows(string id, IReadOnlyList<ExtensionSetting> declared)
+    {
+        if (declared.Count == 0) yield break;
+        var values = IslandExtensions.ValuesFor(id);
+        foreach (var setting in declared)
+        {
+            var current = values.TryGetValue(setting.Key, out var kept) ? kept : ExtensionSettingStore.Initial(setting);
+            var label = setting.Label.For(Loc.IsEnglish);
+            switch (setting.Kind)
+            {
+                case ExtensionSettingKind.Toggle:
+                    var toggle = new CheckBox { Style = (Style)FindResource("SettingsToggle"), IsChecked = current.On, VerticalAlignment = VerticalAlignment.Center };
+                    AutomationProperties.SetName(toggle, label);
+                    toggle.Checked += (_, _) => WriteDeclared(id, setting, new ExtensionSettingValue("toggle", true));
+                    toggle.Unchecked += (_, _) => WriteDeclared(id, setting, new ExtensionSettingValue("toggle", false));
+                    yield return Row(label, toggle);
+                    break;
+                case ExtensionSettingKind.Number:
+                    yield return SliderRow(label, current.Number, setting.Minimum, setting.Maximum, setting.Step, "",
+                        value => WriteDeclared(id, setting, new ExtensionSettingValue("number", false, value)));
+                    break;
+                default:
+                    var options = new UniformGrid { Columns = Math.Min(setting.Options.Count, 3) };
+                    foreach (var option in setting.Options)
+                    {
+                        var words = option.Label.For(Loc.IsEnglish);
+                        var choice = new RadioButton
+                        {
+                            Content = words, Style = (Style)FindResource("SettingsSegment"),
+                            GroupName = id + "." + setting.Key, IsChecked = current.Choice == option.Value
+                        };
+                        AutomationProperties.SetName(choice, label + " · " + words);
+                        choice.Checked += (_, _) => WriteDeclared(id, setting, new ExtensionSettingValue("choice", false, 0, option.Value));
+                        options.Children.Add(choice);
+                    }
+                    yield return Row(label, SegmentBorder(options));
+                    break;
+            }
+        }
+    }
+
+    // Written the way the settings window writes everything: a copy, the edit, the app's apply — and that apply is what
+    // tells the plugin's own pages, so a click here and the page's setSetting end in the same place. The value is
+    // honoured against the declaration on the way in, so the file can only hold what the author's own range allows.
+    private void WriteDeclared(string id, ExtensionSetting setting, ExtensionSettingValue value)
+        => Change(s => s.SetExtensionValue(id, setting.Key, ExtensionSettingStore.Honor(setting, value)));
+
+    // A page wrote one of its own controls: the row this window shows has to say the same thing now.
+    internal void PluginValuesChanged() { if (_pluginsHost is not null) RefreshPlugins(); }
 }

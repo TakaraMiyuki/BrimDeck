@@ -132,6 +132,11 @@ internal static class IslandExtensions
         // The WebView2 runtime is probed once, but only when there is a plugin to show: a machine without plugins never
         // starts a browser process it has no use for, and a page created later still probes on its own.
         if (Slots.Any(slot => slot is not null)) _ = WebRuntime.Environment();
+        // An author whose declared control was skipped is told in two places, because either is where they would look:
+        // under that plugin's row on the plugins page, and in the extension log for anyone debugging with it switched on.
+        for (int slot = 0; slot < Slots.Length; slot++)
+            if (Slots[slot] is WebExtension placed)
+                foreach (var note in placed.Notes) ExtensionLog.Write("extension: note " + placed.Id + " " + note);
         if (changed.Count > 0)
         {
             ExtensionsChanged?.Invoke(changed);
@@ -205,7 +210,41 @@ internal static class IslandExtensions
     // The app sets the palette whenever the theme or the choice changes, before any view is created, and the pages
     // that already exist hear about it as a push.
     public static IslandColors Colors { get; private set; } = new("#4FD17F", "#F0B54A", "#FF6B5E", "#F1F1F4", "#C5C5CB", "#8E8E93", "#2A2A30", "#1D1D21");
-    public static void SetPalette(DeckSettings settings) { Colors = With(MonitorThemeColors.For(settings)); WebRuntime.SetColors(Colors); }
+    // The settings file is adopted wherever the palette is, because both are read from the same object and every path
+    // that applies one applies the other: the declared controls a plugin draws its settings row from, and the values a
+    // reader chose, both live here.
+    public static DeckSettings? Settings { get; private set; }
+    // How a value a page wrote reaches the file, the settings page and every other panel showing that plugin. The app
+    // installs it at startup; the host has no business deciding when settings are saved.
+    public static Action<string, string, ExtensionSettingValue>? WriteValue;
+    public static void SetPalette(DeckSettings settings)
+    {
+        Colors = With(MonitorThemeColors.For(settings));
+        Settings = settings;
+        WebRuntime.SetColors(Colors);
+        // Whatever the settings window just changed — a declared control's value, or the plugin list itself — the pages
+        // are told in the same breath, so a page and its row cannot be seen disagreeing.
+        WebRuntime.PushValues();
+    }
+    // What a loaded plugin declared for the settings page to draw; nothing at all for a built-in page or a plugin with
+    // no declared controls, which is most of them and leaves the row as it always was.
+    public static IReadOnlyList<ExtensionSetting> Declared(int slot) => Slots[slot] is WebExtension web ? web.Declared : [];
+    // The declared entries that plugin wrote which the host could not use — shown under its row on the plugins page.
+    public static IReadOnlyList<string> Notes(int slot) => Slots[slot] is WebExtension web ? web.Notes : [];
+    // The values chosen for one plugin, honoured against what its manifest declares — so a stale or hand-edited value
+    // reads as the declaration would allow, and a page never sees a control its own author would not have drawn.
+    public static IReadOnlyDictionary<string, ExtensionSettingValue> ValuesFor(string id)
+        => Slots.FirstOrDefault(slot => slot is WebExtension web && web.Id == id) is WebExtension extension
+            ? ExtensionSettingStore.Normalize(extension.Declared, Settings?.ExtensionValues(id))
+            : EmptyValues;
+    private static readonly IReadOnlyDictionary<string, ExtensionSettingValue> EmptyValues = new Dictionary<string, ExtensionSettingValue>();
+    // One value written, then told to every page of that plugin: a reader may have three panels open, and a control on
+    // one of them is the same control on all of them.
+    public static void Write(string id, string key, ExtensionSettingValue value)
+    {
+        WriteValue?.Invoke(id, key, value);
+        WebRuntime.ValuesChanged(id);
+    }
     // The normal color is not part of MonitorColors any more; the green the readings have always used still fits a
     // plugin's temperature gauge, on the theme's dark or light surface.
     private static IslandColors With(MonitorColors colors)

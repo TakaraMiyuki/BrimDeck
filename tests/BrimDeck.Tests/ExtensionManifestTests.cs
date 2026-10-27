@@ -91,10 +91,10 @@ internal static class ExtensionManifestTests
 
         // The bridge's version is the one thing an author can write a plugin against, so a plugin that needs a newer
         // one is refused at the folder — before a page loads, finds nothing it asked for, and shows a blank.
-        check("Manifest: no stated API version means the bridge as it is now",
+        check("Manifest: no stated API version means the earliest bridge, so an older plugin still loads",
             Loaded("""{"id":"demo","titleZh":"演示"}""") is { MinApiVersion: 1 });
-        check("Manifest: a plugin asking for the bridge the host has loads",
-            Loaded($$"""{"id":"demo","titleZh":"演示","minApiVersion":{{Bridge.Version}}}""") is { MinApiVersion: 1 });
+        check("Manifest: a plugin asking for the bridge the host has loads, and keeps the version it asked for",
+            Loaded($$"""{"id":"demo","titleZh":"演示","minApiVersion":{{Bridge.Version}}}""") is { } asks && asks.MinApiVersion == Bridge.Version);
         check("Manifest: a plugin needing a newer bridge is refused, naming both versions",
             Refused($$"""{"id":"demo","titleZh":"演示","minApiVersion":{{Bridge.Version + 1}}}""") is { Length: > 0 } older
             && older.Contains("minApiVersion") && older.Contains(Bridge.Version.ToString()));

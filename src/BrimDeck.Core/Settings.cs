@@ -190,9 +190,14 @@ public static class MonitorSizes
     { PanelSize.Compact => (480, 160), PanelSize.Spacious => (860, 320), _ => Default };
 }
 
-// One extension slot's own page settings: whether its tab is on the island, and the page's size. The id is the
-// extension's; an entry whose extension is gone is kept, so a return restores the page as it was.
-public sealed record ExtensionPageSettings(string Id = "", bool Shown = true, double Width = 440, double Height = 160);
+// One extension slot's own page settings: whether its tab is on the island, the page's size, and the values chosen for
+// the controls its manifest declares. The id is the extension's; an entry whose extension is gone is kept, so a return
+// restores the page as it was — values included, which is why a value the manifest no longer declares is kept rather
+// than deleted (the page never reads it, and the author gets it back if they declare the control again).
+public sealed record ExtensionPageSettings(string Id = "", bool Shown = true, double Width = 440, double Height = 160)
+{
+    public Dictionary<string, ExtensionSettingValue> Values { get; init; } = [];
+}
 
 // The size an extension page starts at, and its quick sizes: snug by default, with roomier steps for pages that
 // draw more. An extension's own settings entry carries what the user chose.
@@ -300,6 +305,18 @@ public sealed class DeckSettings
     public double MonitorHeight { get; set; } = MonitorSizes.Default.Height;
     public MonitorPalette MonitorPalette { get; set; } = MonitorPalette.Theme;
     public List<ExtensionPageSettings> Extensions { get; set; } = [];
+    // The values a reader chose for one plugin's declared controls; empty until they touch one.
+    public IReadOnlyDictionary<string, ExtensionSettingValue> ExtensionValues(string id) =>
+        Extensions.FirstOrDefault(e => e.Id == id)?.Values ?? EmptySettingValues;
+    private static readonly IReadOnlyDictionary<string, ExtensionSettingValue> EmptySettingValues = new Dictionary<string, ExtensionSettingValue>();
+    // One value written back, with the row created on the first change the way a page size does. The caller hands over a
+    // value already honoured against the plugin's declaration, so nothing here has to know the control's range.
+    public void SetExtensionValue(string id, string key, ExtensionSettingValue value)
+    {
+        var at = Extensions.FindIndex(e => e.Id == id);
+        if (at < 0) { var created = new ExtensionPageSettings(id); created.Values[key] = value; Extensions.Add(created); return; }
+        Extensions[at].Values[key] = value;
+    }
     // The Custom scheme's colors; kept while another scheme is chosen.
     public MonitorCustomColors MonitorCustomColors { get; set; } = new();
     // The collapsed readings' colors at the warning and critical levels (ReadingLevels), "#RRGGBB", or null for the panel
@@ -430,7 +447,9 @@ public sealed class DeckSettings
         copy.DisplayMonitors = [.. DisplayMonitors ?? []];
         copy.ThemeChoices = (ThemeChoices ?? []).ToDictionary(pair => pair.Key, pair => pair.Value.Copy());
         copy.FullscreenRules = FullscreenRules.Select(rule => rule with { }).ToList();
-        copy.Extensions = Extensions.Select(entry => entry with { }).ToList();
+        // The values live in a mutable dictionary on the row: a copy that shared it would let a settings dialog's
+        // "cancel" write straight through to what was on screen.
+        copy.Extensions = Extensions.Select(entry => entry with { Values = new(entry.Values) }).ToList();
         return copy;
     }
     public void Normalize()
@@ -463,6 +482,9 @@ public sealed class DeckSettings
         Extensions = (Extensions ?? []).Where(e => e is not null && !string.IsNullOrWhiteSpace(e.Id))
             .Select(e => e with
             {
+                // A file can carry "Values": null — an editor that knows the key and has nothing to write. Repaired
+                // here, once, so every later use (the settings window's copy, the first value written) sees a dictionary.
+                Values = e.Values ?? [],
                 Width = double.IsFinite(e.Width) ? Math.Clamp(e.Width, DeckPages.MinWidth, DeckPages.MaxWidth) : ExtensionSizes.Default.Width,
                 Height = double.IsFinite(e.Height) ? Math.Clamp(e.Height, DeckPages.MinHeight, DeckPages.MaxHeight) : ExtensionSizes.Default.Height
             })

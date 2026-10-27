@@ -20,20 +20,26 @@ BrimDeck 支持在不修改主程序源码的情况下添加自定义页面。�
 | `entry` | 否 | 入口页面，默认 `index.html`；必须是插件文件夹内的相对路径 |
 | `minWidth` / `minHeight` | 否 | 页面不裁切所需的最小**视口**（CSS 像素，不小于 40）；不声明则用全局下限。宿主把它换算成面板尺寸（加上自己的标题行与边距），所以插件只需描述自己的页面，不必知道面板的布局。用户将面板拖得更小时，本页会停在这个尺寸上，其余页照常缩小 |
 | `minApiVersion` | 否 | 页面依赖的桥接版本，≥1 的整数，默认 1。声明得比宿主当前版本高时，这个文件夹在扫描时就被拒绝，原因显示在「未能加载」里（两个版本号都写上）——总比加载一个永远等不到所需消息的空白页好 |
+| `settings` | 否 | 交给宿主渲染的设置项数组（至多 16 项）：`{key, type: "toggle"｜"number"｜"choice", label, default, …}`。number 另有 `min`/`max`/`step`，choice 另有 `options:[{value,label}]`；number 的 `default` 先夹进 `min`–`max`，再落到从 `min` 数起的 `step` 格点上，所以页面第一次读到的值也是它写回来时不会被改动的值。`label` 可以是字符串（中英同字），也可以写 `{"zh":"…","en":"…"}`；不写就用 key 顶上。宿主把它画在「设置 → 插件」那一行里，值随插件保存，读者不用打开文件夹，作者不用写一行设置界面 |
+| `phrases` | 否 | 页面文案的字典（至多 64 条）：`{"hot":"过热"}` 或 `{"hot":{"zh":"过热","en":"Overheating"}}`。宿主按界面语言把当前那份交给页面（`brimdeck.phrase(key)`），语言切换时再推一次；缺的条目页面读回 key 本身 |
 
-## 桥接 API（version 1）
+`settings` 与 `phrases` 里有一项写错不会让插件失效：那一项被跳过，说明列在「设置 → 插件」里该插件行展开后的「已忽略的声明项」下（开了扩展日志时也会写一行 `extension: note …`），其余照常。会被跳过的写法：key 越出字母数字与 `- . _`、同 key 重复、type 不是那三种、number 的 `min` 不小于 `max` 或不是有限数、choice 没有带 `value` 的 option。
+
+## 桥接 API（version 2）
 
 页面里通过注入的 `brimdeck` 对象与宿主通信。宿主在页面任何脚本运行前注入它；在普通浏览器里直接打开页面时它不存在——所有用法都应降级（这也是插件的调试方式之一）。
 
-桥的版本号只有宿主里一处定义，页面看到的两个数字都来自它：`brimdeck.version`（注入时就可用）与 `init.apiVersion`（同一次握手带来的）。`init.appVersion` 是 BrimDeck 自己的版本号，用于「在某个版本上出问题」这类说明。版本只在**消息或事件的形状**发生会让老页面误读的变化时递增；新增一个 kind、新增一个可选字段都不算——所以写页面时按"字段可能不存在"来防御，尤其是 `init.limits` 这类后来加的。
+桥的版本号只有宿主里一处定义，页面看到的两个数字都来自它：`brimdeck.version`（注入时就可用）与 `init.apiVersion`（同一次握手带来的）。`init.appVersion` 是 BrimDeck 自己的版本号，用于「在某个版本上出问题」这类说明。递增的时机有两种：**消息或事件的形状**发生会让老页面误读的变化，以及**宿主新增了一项插件可以要求的能力**（v2 就是后者：声明式设置与文案）。只加一个 kind、加一个可选字段不算——所以写页面时按"字段可能不存在"来防御，尤其是 `init.limits` 这类后来加的；反过来，一个非要新能力不可的页面就在清单里写 `minApiVersion`，让宿主在扫描时替你回答。
 
 ### 事件（`brimdeck.on(kind, fn)`）
 
 | kind | 数据 | 时机 |
 | --- | --- | --- |
-| `init` | `{ apiVersion, appVersion, limits, colors, language, shown, state }` | 页面加载后立即到达一次，携带它需要的全部初始状态 |
+| `init` | `{ apiVersion, appVersion, limits, settings, phrases, colors, language, shown, state }` | 页面加载后立即到达一次，携带它需要的全部初始状态 |
 | `colors` | 八色对象 | 主题或监控配色变化时 |
-| `language` | `"zh"` / `"en"` | 界面语言切换时 |
+| `language` | `"zh"` / `"en"` | 界面语言切换时（`phrases` 紧跟着再推一次新的那份） |
+| `settings` | 声明项的当前值对象 | 有声明项的值真的变了之后（读者在「设置 → 插件」改了，或某个页面 `setSetting` 改成了不同的值）；所有该插件的页面收到同一份，没有变化就不推 |
+| `phrases` | 当前语言的文案对象 | 界面语言切换时 |
 | `visibility` | `true` / `false` | 任意面板开始/停止显示该页（切页、收起、停用都会到 `false`） |
 | `alarm` | 闹钟 id | 注册的闹钟到点（页面不在时到点的闹钟会在下次加载时补发） |
 | `error` | `{ code, detail }` | 宿主打消了页面的一项请求；`detail` 是给人看的一句话 |
@@ -52,6 +58,8 @@ BrimDeck 支持在不修改主程序源码的情况下添加自定义页面。�
 | `alarms-full` | 该插件已占满 `limits.alarms` 个闹钟 |
 | `bad-keepAlive` | `setKeepAlive` 收到的不是布尔值 |
 | `bad-link` | `openUrl` 的参数不是字符串 |
+| `unknown-setting` | `setSetting` 的 key 不在这个插件声明的 `settings` 里 |
+| `bad-setting` | `setSetting` 少了 key/value，或值的类型与该控件不符（toggle 要 `true`/`false`，number 要数，choice 要 option 的 value） |
 | `link-refused` | 地址不符合规则（见「安全模型」），或那正是插件自己文件夹的地址，宿主没有打开它 |
 | `links-too-many` | 出口用得太密：`limits.linkWindowSeconds` 秒内已超过 `limits.linksPerWindow` 次 |
 | `link-failed` | 地址合规，但系统浏览器没能启动 |
@@ -62,15 +70,20 @@ BrimDeck 支持在不修改主程序源码的情况下添加自定义页面。�
 ### 方法
 
 ```js
-brimdeck.version                     // 1
+brimdeck.version                     // 2
 brimdeck.appVersion                  // 宿主版本；init 到达前是 ''
 brimdeck.limits                      // init 带来的上限；init 到达前是 null
+brimdeck.settings                    // 声明项的当前值，如 { showFan: true, warn: 65, mode: 'cool' }
+brimdeck.phrases                     // 当前语言的文案；brimdeck.phrase(key) 取一条，缺的读回 key
 brimdeck.saveState(state)            // 把插件状态交给宿主保存；下次页面加载时随 init 交还
 brimdeck.setKeepAlive(true)          // 收起后不回收本页资源（默认会回收，见下）
 brimdeck.openUrl(url)                // 把链接交给系统默认浏览器；只有合规的 http/https 完整地址会真的打开
+brimdeck.setSetting(key, value)      // 改一个自己声明的控件；宿主按该控件的范围与步进收下，再把整份 settings 推回来
 brimdeck.alarm.set(id, at)           // 登记闹钟：id 为字符串，at 为 Date 或毫秒时间戳；到点触发一次 'alarm'
 brimdeck.alarm.clear(id)
 ```
+
+`setSetting` 之后**以 `settings` 事件为准**：宿主是决定的那一方——写进 step 为 5 的控件里的 63 会作为 65 收下，写一个不在 options 里的 choice 会落回该控件的默认值。这样页面不必复制一遍声明才知道自己能显示什么。**值没变就不会再推**：宿主存的就是你已有的那份时，不会有第二条 `settings`（也不存盘、不重建设置行）——所以别把"没收到回推"当成"宿主没收到"，它收到且已经采纳。日志里每次 `setSetting` 都会留下一行 `view: setting <id> <key>=<兑现后的值>`，排查时用得上。
 
 `openUrl`、`window.open`、以及页面里**读者点到的外链**（宿主注入的脚本把不指向插件自己文件夹的 `<a>` 点击转成这条调用）都走同一个出口，也共用同一份频率：每个插件在 `limits.linkWindowSeconds` 秒内至多 `limits.linksPerWindow` 次，多出来的收到 `links-too-many`。之所以不区分"是不是人点的"：宿主看不见点击，只能看见消息——WebView2 会把脚本自己写的 `location.href` 也报成"用户发起"（这条是被 UI 测试逮到的），所以凡是需要"有人点了一下"才该做的事，都按最保守的算。
 
@@ -132,7 +145,7 @@ brimdeck.alarm.clear(id)
 
 ## 用户侧：设置 → 插件
 
-- **已加载列表**：每个插件一行——图标、标题、id 与来源文件夹；行内开关控制页签是否出现在灵动岛上，宽高为该插件页面的尺寸（也可直接在面板上拖拽边缘调整）。两者都不得低于该插件清单声明的 `minWidth`/`minHeight`，填得更小会被抬回。
+- **已加载列表**：每个插件一行——图标、标题、id 与来源文件夹；行内开关控制页签是否出现在灵动岛上，宽高为该插件页面的尺寸（也可直接在面板上拖拽边缘调整）。两者都不得低于该插件清单声明的 `minWidth`/`minHeight`，填得更小会被抬回。展开后还列出该插件在清单里 `settings` 声明的控件：开关、带范围与步进的数字、分段单选——由宿主绘制、随界面语言出词、按插件 id 保存；改一下立刻推给该插件的所有页面。
 - **打开插件文件夹**：打开（必要时创建）`extensions` 目录。
 - **重新加载**：重新扫描目录——新放入的插件被装入、被修改的插件被替换（旧页面与其状态按上述生命周期处理）、被删除的插件被停用；无需重启。
 - **未能加载 / 已跳过**：读取失败或槽位已满的插件按文件夹名列出原因；不含清单的文件夹列在「已跳过」。
@@ -142,8 +155,8 @@ brimdeck.alarm.clear(id)
 
 ## 示例
 
-`samples/clock-web/` 是一个最小示例：显示时间与日期，用宿主配色绘制，`visibility(false)` 后停止计时，并用 `saveState` 记录显示次数以演示状态的保存与交还。可直接作为新插件的骨架。
+`samples/clock-web/` 是一个最小示例，也是声明式清单的一整个来回：显示时间与日期，用宿主配色绘制，`visibility(false)` 后停止计时，用 `saveState` 记录显示次数——而「显示秒 / 字号 24–64 / 日期」三个控件与「星期日…星期六 / 第 {n} 次显示」八条文案全部写在 `manifest.json` 里，页面一个字都不自己画、一个词都不自己存，只读 `brimdeck.settings` 与 `brimdeck.phrase()`，收到 `settings`/`phrases` 就重绘。点一下时间会走一趟 `setSetting`：宿主按声明兑现后推回 `settings`，页面照着**被兑现的值**重画。它同时声明 `"minApiVersion": 2`——桥低于这个版本时文件夹在扫描阶段就被拒绝，而不是加载后永远等不到 `settings`。可直接作为新插件的骨架。
 
-安装：把整个 `clock-web` 文件夹拷进 `%LOCALAPPDATA%\BrimDeck\extensions\`，在「设置 → 插件」点「重新加载」，页签立即出现。
+安装：把整个 `clock-web` 文件夹拷进 `%LOCALAPPDATA%\BrimDeck\extensions\`，在「设置 → 插件」点「重新加载」，页签立即出现，插件那一行也会展开这三个控件。
 
-开发：直接双击 `index.html` 在浏览器里调试（桥不存在，页面按默认样式运行）；或装进插件目录后用 WebView2 的 DevTools（右键 → 检查）调试真实环境。改完文件点「重新加载」即生效。
+开发：直接双击 `index.html` 在浏览器里调试（没有桥，页面用与清单同款的默认值和英文兜底词，照样能跑）；或装进插件目录后用 WebView2 的 DevTools（右键 → 检查）调试真实环境。改完文件点「重新加载」即生效。

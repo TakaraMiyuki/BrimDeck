@@ -3,5 +3,44 @@
   "titleZh": "时钟",
   "titleEn": "Clock",
   "glyph": "M 12,3 A 9,9 0 1 1 11.99,3 M 12,7 V 12.5 L 15.5,14.5",
-  "entry": "index.html"
+  "entry": "index.html",
+  "minApiVersion": 2,
+  "settings": [
+    {
+      "key": "seconds",
+      "type": "toggle",
+      "label": { "zh": "显示秒", "en": "Show seconds" },
+      "default": false
+    },
+    {
+      "key": "size",
+      "type": "number",
+      "label": { "zh": "字号", "en": "Time size" },
+      "min": 24,
+      "max": 64,
+      "step": 2,
+      "default": 44
+    },
+    {
+      "key": "date",
+      "type": "choice",
+      "label": { "zh": "日期", "en": "Date line" },
+      "options": [
+        { "value": "off", "label": { "zh": "不显示", "en": "Off" } },
+        { "value": "date", "label": { "zh": "仅日期", "en": "Date only" } },
+        { "value": "full", "label": { "zh": "日期加星期", "en": "Date + weekday" } }
+      ],
+      "default": "full"
+    }
+  ],
+  "phrases": {
+    "day0": { "zh": "星期日", "en": "Sunday" },
+    "day1": { "zh": "星期一", "en": "Monday" },
+    "day2": { "zh": "星期二", "en": "Tuesday" },
+    "day3": { "zh": "星期三", "en": "Wednesday" },
+    "day4": { "zh": "星期四", "en": "Thursday" },
+    "day5": { "zh": "星期五", "en": "Friday" },
+    "day6": { "zh": "星期六", "en": "Saturday" },
+    "visits": { "zh": "第 {n} 次显示", "en": "Shown {n} times" }
+  }
 }

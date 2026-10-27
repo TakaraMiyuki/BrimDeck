@@ -21,10 +21,13 @@ internal static class Program
     private const string MarkA = "fixture-a";
     private const string MarkB = "fixture-b";
     private const string MarkC = "fixture-c";
+    private const string MarkD = "fixture-d";
     private static readonly Color ColorA = Color.FromArgb(192, 0, 0);
     private static readonly Color ColorB = Color.FromArgb(0, 192, 0);
     // C starts dark and turns blue only when the bridge has said everything the page has to hear.
     private static readonly Color ColorC = Color.FromArgb(0, 0, 192);
+    // D turns purple only when its declared controls arrived, and came back the way the host honours them.
+    private static readonly Color ColorD = Color.FromArgb(156, 39, 176);
     private static AutomationElement? _window;
 
     [STAThread]
@@ -50,6 +53,7 @@ internal static class Program
         WriteFixture(data, "fixture-a", "FixtureA", MarkA, "#C00000", minWidth: 440, minHeight: 220);
         WriteFixture(data, "fixture-b", "FixtureB", MarkB, "#00C000");
         WriteFixture(data, "fixture-c", "FixtureC", MarkC, "#202020", bridgeProbe: true);
+        WriteDeclaredFixture(data);
         Console.WriteLine("profile: " + data);
         Console.WriteLine("app: " + options.App);
 
@@ -113,10 +117,32 @@ internal static class Program
             Require(CountLog(log, "view: refused navigation fixture-c") > 0, "a page that navigates itself out to the web stays inside the plugin");
             Require(CountLog(log, "view: link fixture-c") == 0, "no desktop browser was opened for a link nobody clicked");
             Console.WriteLine("PASS the refusals the page got are the ones the host logged");
+
+            // The declared controls, both ways round. The page cannot paint itself purple until init has handed it the
+            // three values and its own words; and it cannot know the round trip works until the number it wrote (63, on
+            // a control whose step is five) has come back as the 65 its declaration allows.
+            Press(Find(window, "FixtureD"));
+            Reopen();
+            Require(WaitForColorWithReopen(ColorD, TimeSpan.FromSeconds(8)),
+                "D turns purple once its declared values arrive and a real change comes back honoured");
+            Console.WriteLine("PASS a plugin's declared settings round-trip through the host");
+            Require(CountLog(log, "view: setting fixture-d warn=65") == 1, "the host kept the honoured number, not the one it was sent");
+            // Two writes, one answer: the number that honours to what the page already holds is nothing to store, and a
+            // page that got no second push is the point — pushing it would invite the page to write again, and every
+            // round would rebuild the settings row and queue a save.
+            Require(CountLog(log, "view: settings fixture-d") == 1, "one change was pushed once, and the unchanged write was pushed not at all");
+            // The fourth entry declares a key with a space in it: the host must draw the three it can and say why the
+            // other was skipped, in the log the author can read and on the plugins page the reader can see.
+            Require(CountLog(log, "extension: note fixture-d settings[3].key") > 0, "a declared entry the host skipped is said out loud, not just dropped");
+            Require(CountLog(log, "view: refused fixture-d unknown-setting") == 0, "a skipped declaration is not also a message the page is punished for");
+            // Once each: the page writes the value back unchanged and the host applies settings several times over the
+            // run (a theme, a size). Either would answer the other forever if a push or a write were not compared first.
+            Require(CountLog(log, "view: setting fixture-d warn=65") == 1 && CountLog(log, "view: settings fixture-d") == 1,
+                "a write that changes nothing is not written, and one change is not pushed twice");
             // Back to A: everything below watches A, and the panel's size follows the page it is on.
             Press(Find(window, "FixtureA"));
             Reopen();
-            Require(WaitForColorWithReopen(ColorA, TimeSpan.FromSeconds(8)), "switching back from C shows A (red page)");
+            Require(WaitForColorWithReopen(ColorA, TimeSpan.FromSeconds(8)), "switching back from D shows A (red page)");
 
             if (options.Full)
             {
@@ -464,6 +490,69 @@ internal static class Program
                 });
               }
             """;
+
+    // A plugin that declares its controls in the manifest instead of drawing them: the host has to read them back to the
+    // page, honour what the page writes against its own range and step, and speak the plugin's own words in whichever
+    // language the interface is in. Purple is only painted once a real change comes back — and only one change ever,
+    // because the page also writes a number that honours to what it was already given (63 on a step of fives is the 65
+    // it holds), which is nothing to store, push or rebuild.
+    private static void WriteDeclaredFixture(string root)
+    {
+        var folder = Path.Combine(root, "extensions", "fixture-d");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "manifest.json"), """
+            {
+              "id": "fixture-d",
+              "titleZh": "FixtureD",
+              "titleEn": "FixtureD",
+              "entry": "index.html",
+              "settings": [
+                { "key": "showFan", "type": "toggle", "label": "风扇", "default": true },
+                { "key": "warn", "type": "number", "label": { "zh": "告警温度", "en": "Warn at" }, "min": 30, "max": 110, "step": 5, "default": 65 },
+                { "key": "mode", "type": "choice", "label": "配色", "default": "cool",
+                  "options": [ { "value": "auto", "label": "自动" }, { "value": "cool", "label": "冷静" } ] },
+                { "key": "bad key", "type": "toggle", "label": "这一项该被跳过" }
+              ],
+              "phrases": { "hot": { "zh": "过热", "en": "Overheating" } }
+            }
+            """);
+        File.WriteAllText(Path.Combine(folder, "index.html"), """
+            <!doctype html>
+            <meta charset="utf-8">
+            <style>
+              html, body { margin: 0; height: 100%; background: #202020; }
+              body { box-sizing: border-box; padding: 8px; font: 600 20px "Segoe UI", sans-serif; color: #fff; }
+            </style>
+            <div>fixture-d</div>
+            <script>
+              var told = false, honored = false;
+              function paint() {
+                if (!(told && honored)) return;
+                var c = '#9C27B0';
+                document.documentElement.style.background = c;
+                document.body.style.background = c;
+              }
+              if (window.brimdeck) {
+                brimdeck.on('init', function (init) {
+                  var s = init.settings || {};
+                  told = s.showFan === true && s.warn === 65 && s.mode === 'cool'
+                    && typeof init.phrases.hot === 'string' && init.phrases.hot.length > 0
+                    && brimdeck.phrase('absent') === 'absent'
+                    && brimdeck.version >= 2;
+                  if (told) {
+                    brimdeck.setSetting('warn', 63);   // honoured to 65: the value the page already holds
+                    brimdeck.setSetting('mode', 'auto'); // a real change, and the only one that comes back
+                  }
+                  paint();
+                });
+                brimdeck.on('settings', function (values) {
+                  honored = values.warn === 65 && values.mode === 'auto' && values.showFan === true;
+                  paint();
+                });
+              }
+            </script>
+            """);
+    }
 
     private static void DeleteWhenFree(string folder)
     {
