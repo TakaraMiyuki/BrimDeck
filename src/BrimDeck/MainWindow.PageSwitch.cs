@@ -34,11 +34,17 @@ public partial class MainWindow
     private void OrderPageButtons()
     {
         if (AIUsageButton.Parent is not Panel buttons) return;
+        // Plugin tabs and anything else that joined the strip are kept, appended after the built-in pages in the order
+        // they were added — the reader's arrangement walks the built-ins; a plugin tab follows them by its slot.
+        var extras = buttons.Children.Cast<UIElement>()
+            .Where(child => child is not System.Windows.Controls.Button button
+                || (button != AIUsageButton && button != MusicPageButton && button != MonitorPageButton)).ToList();
         var order = Settings.PageOrder.Select(PageButton).ToList();
-        if (!buttons.Children.Cast<UIElement>().SequenceEqual(order))
+        if (!buttons.Children.Cast<UIElement>().SequenceEqual(order.Concat(extras)))
         {
             buttons.Children.Clear();
             foreach (var button in order) buttons.Children.Add(button);
+            foreach (var extra in extras) buttons.Children.Add(extra);
         }
         for (int i = 0; i < order.Count; i++) order[i].Margin = new Thickness(i == 0 ? 0 : 1, 0, 0, 0);
     }

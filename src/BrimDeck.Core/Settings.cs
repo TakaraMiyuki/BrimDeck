@@ -34,8 +34,10 @@ public sealed record FullscreenRule(string Name = "", string Path = "")
 public enum ProviderId { Claude, Codex, Antigravity, Cursor, GlmChina, NewApi, Sub2Api, Custom, ZCode = 10, GlmGlobal = 11, Dsh = 12, DeepSeek = 13, GrokBot = 14, Kimi = 15, KimiApi = 16, OpenCode = 17, OpenCodeGo = 18, OpenRouter = 19 }
 public enum SettingsTheme { System, Light, Dark }
 // Pages are saved as numbers, so new members go at the end; their order in the page switch is DeckSettings.PageOrder.
-public enum DeckPage { Usage, Music, Monitor }
-public enum DefaultDeckPage { Last, Usage, Music, Monitor }
+// Extension0..3 are the slots a plugin page can occupy; the app loads the plugins and fills them in order, and a plugin
+// page enters the saved order the first time it is arranged rather than being pruned out of it.
+public enum DeckPage { Usage, Music, Monitor, Extension0, Extension1, Extension2, Extension3 }
+public enum DefaultDeckPage { Last, Usage, Music, Monitor, Extension0, Extension1, Extension2, Extension3 }
 // What the mouse wheel does over the expanded panel. Saved as numbers, so new members go at the end.
 public enum MouseWheelAction { None, Pages, Volume }
 public enum CompactMusicText { None, Title, Lyrics }
@@ -82,6 +84,21 @@ public static class ClockColors
 }
 
 // A dashboard column has an identity independent of either data source.
+// One plugin slot's own page settings: whether its tab is on the island and the page's size. The id is the plugin's;
+// an entry whose plugin is gone is kept, so a return restores the page as it was. The slot is where the scan last put
+// that plugin: the reader's arrangement and the page's size are written in slots, so a plugin has to come back to the
+// one it was in. -1 is "never placed", which is what a file written before this, or a folder not loaded yet, reads as.
+public sealed record ExtensionPageSettings(string Id = "", bool Shown = true, double Width = 440, double Height = 160, int Slot = -1);
+
+// The size a plugin page starts at, and its quick sizes: snug by default, with roomier steps for pages that draw more.
+// A plugin's own settings entry carries what the user chose.
+public static class ExtensionSizes
+{
+    public static readonly (double Width, double Height) Default = (440, 160);
+    public static (double Width, double Height) For(PanelSize size) => size switch
+    { PanelSize.Compact => (440, 160), PanelSize.Spacious => (660, 260), _ => (520, 200) };
+}
+
 public sealed class AppEntry
 {
     private ProviderId? _usageSource;
@@ -406,6 +423,18 @@ public sealed class DeckSettings
     public List<CompactPart> CapsuleOrder { get => _capsuleOrder; set => _capsuleOrder = CompactParts.Normalize(value); }
     // The order of the pages in the open panel's page switch, left to right.
     public List<DeckPage> PageOrder { get => _pageOrder; set => _pageOrder = DeckPages.Normalize(value); }
+    // One entry per plugin slot: whether its tab is shown and the page's size, keyed by the plugin's id.
+    public List<ExtensionPageSettings> Extensions { get; set; } = [];
+    // The plugin system's master switch: off loads no plugin at all, and the plugins page shows the switch alone.
+    // On by default — the feature is what this branch is for; a build that turns it off is the safe mode's doing.
+    public bool EnablePlugins { get; set; } = true;
+    // Plugins the user turned off, by their DLL file name. A disabled DLL is not loaded at all, so its id is unknown
+    // here; the file name is the stable thing the plugins page's toggle is written against.
+    public List<string> PluginsDisabledFiles { get; set; } = [];
+    // Files whose first enable has been answered; the install warning shows once per file.
+    public List<string> PluginsWarnedFiles { get; set; } = [];
+    // Consecutive startups that failed inside the plugin loader. Two in a row ask for the safe mode; a clean load zeroes it.
+    public int PluginsStartupFailures { get; set; }
     // Whether the notch and the capsule widen to their content (CollapsedGeometry.Resolve). Resizing one by dragging an end turns
     // its own off, so the width set by hand stays.
     public bool NotchAutoWidth { get; set; } = true;

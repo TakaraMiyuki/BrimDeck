@@ -80,10 +80,16 @@ public partial class MainWindow
     internal bool IsMusicPage => CurrentPage == DeckPage.Music;
     internal bool IsMonitorPage => CurrentPage == DeckPage.Monitor;
     internal bool IsUsagePage => CurrentPage == DeckPage.Usage;
+    // A plugin page is on screen: its slot is the one DeckPages placed it in, and RenderExtension draws it.
+    internal bool IsExtensionPage => DeckPages.SlotOf(CurrentPage) >= 0;
+    internal int ExtensionSlot => DeckPages.SlotOf(CurrentPage);
     internal CompactMusicLayout? CurrentCompactLayout { get; private set; }
 
     private void InitializeMusic()
     {
+        // A scan's changes rebuild the tabs, the views and the compact row; the panel is told on the thread the scan ran on.
+        IslandExtensions.ExtensionsChanged += OnExtensionsChanged;
+        BuildExtensionButtons();
         _page = Settings.LastPage;
         _sourceMenuWatch = new(Dispatcher, TickSourceMenu) { Interval = TimeSpan.FromMilliseconds(40) };
         _musicTick = new(Dispatcher, TickMusic) { Interval = TimeSpan.FromMilliseconds(33) };
@@ -136,7 +142,12 @@ public partial class MainWindow
         bool back = Settings.PageOrder.IndexOf(page) < Settings.PageOrder.IndexOf(before);
         _handover.Send(picture, place, PageContent(page), back ? Handover.Back : Handover.Forward);
     }
-    private FrameworkElement PageContent(DeckPage page) => page switch { DeckPage.Music => MusicContent, DeckPage.Monitor => MonitorContent, _ => UsageContent };
+    private FrameworkElement PageContent(DeckPage page) => page switch
+    {
+        DeckPage.Music => MusicContent, DeckPage.Monitor => MonitorContent,
+        DeckPage.Extension0 or DeckPage.Extension1 or DeckPage.Extension2 or DeckPage.Extension3 => ExtensionContent,
+        _ => UsageContent
+    };
     private void ShowPage(DeckPage page, bool animatePage)
     {
         _detailPopup?.Close(); _details = false; _page = page; _musicRenderKey = ""; _handover.Drop();

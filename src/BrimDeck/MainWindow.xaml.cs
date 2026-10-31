@@ -508,8 +508,69 @@ public partial class MainWindow : Window
         }
         CompactAlert.Visibility = Visibility.Collapsed; CompactRings.Visibility = Visibility.Visible;
         RenderCompactMusic();
+        RenderCompactPlugins();
         ApplyCollapsedLayout();
         RowFadeRun(fade);
+    }
+
+    // The plugins' widgets, after the built-in parts of the row. Each is asked how wide it wants at the row's height,
+    // and the ones that fit the room left are added in plugin order — a widget that would push the row past its content
+    // width is dropped, which is the plugins-page story of "it did not fit". The views are built once per widget and
+    // kept for the capsule's life; a theme change recolors them in place (IslandExtensions.SetPalette), and a scan that
+    // replaced the plugin leaves its stale view here only until this pass removes it.
+    private readonly Dictionary<(object Plugin, object Compact), FrameworkElement> _compactViews = [];
+
+    internal void RenderCompactPlugins()
+    {
+        var wanted = new List<((object, object) Key, FrameworkElement View, double Width)>();
+        double rowHeight = Compact.Height;
+        foreach (var (plugin, compact) in IslandExtensions.Compacts())
+        {
+            var key = ((object)plugin, (object)compact);
+            if (!_compactViews.TryGetValue(key, out var view))
+            {
+                try { view = compact.CreateView(IslandExtensions.Colors); }
+                catch (Exception ex)
+                {
+                    ExtensionLog.Write("compact: failed " + plugin.Id + "/" + compact.Id + ": " + ex.Message.Split('\n')[0]);
+                    continue;
+                }
+                _compactViews[key] = view;
+                ExtensionLog.Write("compact: view built " + plugin.Id + "/" + compact.Id);
+            }
+            double ask;
+            try { ask = compact.DesiredWidth(rowHeight); }
+            catch (Exception) { continue; }
+            if (!double.IsFinite(ask) || ask <= 0) continue;
+            wanted.Add((key, view, Math.Min(ask, 400)));
+        }
+        // Stale views (a plugin replaced or retired by the last scan) leave the row here.
+        foreach (var (key, view) in _compactViews)
+            if (!wanted.Any(entry => entry.Key == key) && CompactRings.Children.Contains(view))
+                CompactRings.Children.Remove(view);
+
+        // What the built-in parts already take: their desired span, so the plugins share what the row has left.
+        CompactRings.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        double taken = 0;
+        foreach (var child in CompactRings.Children.OfType<FrameworkElement>())
+            if (!_compactViews.ContainsValue(child))
+                taken += child.DesiredSize.Width + child.Margin.Left + child.Margin.Right;
+        double room = Math.Max(0, Compact.Width - taken);
+        double gap = 8;
+        foreach (var (key, view, width) in wanted)
+        {
+            if (room < width)
+            {
+                if (CompactRings.Children.Contains(view)) CompactRings.Children.Remove(view);
+                continue;
+            }
+            if (!CompactRings.Children.Contains(view))
+            {
+                view.Margin = new Thickness(gap / 2, 0, gap / 2, 0);
+                CompactRings.Children.Add(view);
+            }
+            room -= width + gap;
+        }
     }
 
     private void DetectThresholds()
