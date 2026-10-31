@@ -232,9 +232,13 @@ public partial class App : Application
         settings.Normalize(); Settings = settings;
         ApplyHotkeys();
         // The palette and the plugin gates live with the settings instance: keep the loader current and the live
-        // views recolored when the theme or the monitor palette changed.
+        // views recolored when the theme or the monitor palette changed. The master switch applies at once: off
+        // unloads every plugin mid-run, on loads them (a no-op when they are already in).
         IslandExtensions.SetSettings(settings);
         IslandExtensions.SetPalette(settings);
+        if (!settings.EnablePlugins) IslandExtensions.UnloadAll();
+        else if (IslandExtensions.Plugins.Count == 0 && IslandExtensions.Failures.Count == 0 && IslandExtensions.Skipped.Count == 0)
+            IslandExtensions.Load(settings);
         // A panel whose collapsed row changes asks again as it is built (PresentMonitor).
         UpdateMonitorExtras();
         // Statuses and notes are worded when the data is read, so a new language reads the data again.

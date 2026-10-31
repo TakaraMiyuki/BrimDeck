@@ -115,6 +115,20 @@ internal static class IslandExtensions
         Scan();
     }
 
+    // The master switch turned the plugin system off mid-run: every plugin unloads now, the folders and their data are
+    // untouched, and the page layer retires its tabs and views through ExtensionsChanged.
+    public static void UnloadAll()
+    {
+        bool hadAny = Plugins.Count > 0 || Failures.Count > 0 || Skipped.Count > 0;
+        foreach (var plugin in Plugins)
+            try { plugin.Context.Unload(); } catch (Exception) { }
+        Plugins.Clear(); Failures.Clear(); Skipped.Clear(); _withoutPlugin.Clear();
+        for (int slot = 0; slot < 4; slot++) Slots[slot] = null;
+        _previousSlots = new Plugin?[4];
+        if (hadAny || ExtensionLog.Enabled) ExtensionLog.Write(hadAny ? "master switch: all plugins unloaded" : "master switch: nothing was loaded");
+        ExtensionsChanged?.Invoke();
+    }
+
     // The settings instance the loader reads its gates from, kept current as the app applies new ones.
     internal static void SetSettings(DeckSettings settings) => Settings = settings;
 
@@ -361,6 +375,14 @@ internal static class IslandExtensions
 
     // The page a slot shows (the first one the plugin registered), or null.
     public static IIslandPage? PageOf(int slot) => Occupied(slot) ? Slots[slot]!.Host.Pages[0] : null;
+
+    // The page's preferred box, as its contract asks; a plugin that throws or asks for nothing takes the host default.
+    public static (double Width, double Height)? PreferredSize(int slot)
+    {
+        if (slot < 0 || slot >= 4 || Slots[slot] is not { } plugin) return null;
+        try { return plugin.Host.Pages.FirstOrDefault()?.PreferredSize; }
+        catch (Exception) { return null; }
+    }
     // The tab glyph a slot's plugin declared, for the tab button and the plugins page.
     public static string Glyph(int slot) => slot >= 0 && slot < 4 && Slots[slot] is { } plugin ? plugin.Extension.Glyph : "";
 

@@ -41,13 +41,7 @@ public sealed partial class SettingsWindow
         master.Children.Add(masterToggle);
         Group(master);
 
-        if (!S.EnablePlugins)
-        {
-            var note = Wrapped(Loc.T("插件功能已关闭（安全模式）。删除或调整 %LOCALAPPDATA%\\BrimDeck\\plugins 里的文件不受影响；重新打开开关即恢复。", "The plugin system is off (safe mode). Files in %LOCALAPPDATA%\\BrimDeck\\plugins are untouched; turning the switch back on restores everything."), false);
-            note.Margin = new Thickness(0, 6, 0, 8);
-            _content.Children.Add(note);
-            return;
-        }
+        if (!S.EnablePlugins) return; // Off: the page is the switch alone.
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 18) };
         actions.Children.Add(OutlineAction(Loc.T("打开插件文件夹", "Open plugins folder"),
@@ -194,13 +188,13 @@ public sealed partial class SettingsWindow
         return item;
     }
 
-    // The facts a reader needs, by state: what a loaded plugin registered and where it came from; why a file is
-    // disabled, failed or was skipped. The file name always comes last, as the toggle is written against it.
+    // The facts a reader needs, by state: what a loaded plugin registered and where it came from; why a file failed or
+    // was skipped. A disabled row adds nothing — the greyed name and its switch already tell that story — and the file
+    // name always comes last, as the toggle is written against it.
     private IEnumerable<FrameworkElement> DetailLines(string file, IslandExtensions.Plugin? plugin, PluginInfo? known,
         (string File, string Error) failure, (string File, string Note) skipped)
     {
-        if (S.PluginsDisabledFiles.Any(name => string.Equals(name, file, StringComparison.OrdinalIgnoreCase)))
-            yield return TextLine(Loc.T("已停用。重新打开开关即恢复。", "Disabled. Turn the switch back on to restore it."), 11.5, TextSecondary);
+        bool disabled = S.PluginsDisabledFiles.Any(name => string.Equals(name, file, StringComparison.OrdinalIgnoreCase));
         if (failure.File is not null)
             yield return TextLine(Loc.T("未能加载：", "Could not load: ") + failure.Error, 11.5, TextSecondary);
         else if (skipped.File is not null)
@@ -216,7 +210,7 @@ public sealed partial class SettingsWindow
                 11.5, TextSecondary);
             if (repository.Length > 0) yield return TextLine(repository, 11.5, TextTertiary);
         }
-        else if (known is { } info && info.Id.Length > 0)
+        else if (!disabled && known is { } info && info.Id.Length > 0)
             yield return TextLine(info.Id, 11.5, TextSecondary);
         yield return TextLine(file, 11, TextTertiary);
     }
