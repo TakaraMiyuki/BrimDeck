@@ -9,9 +9,19 @@ public static class DeckPages
     // Each known page once, in the saved order; a page missing from the file takes its default place after the others.
     public static List<DeckPage> Normalize(IEnumerable<DeckPage>? order) => [.. (order ?? []).Where(page => Enum.IsDefined(page)).Concat(Order).Distinct()];
 
+    // The plugin page slots: the host (MainWindow) answers which slots are occupied and by which plugin id, and what
+    // size a slot's page carries. Core stays free of the plugin loader; the delegates are set once, at startup.
+    public static Func<int, bool>? SlotOccupied;
+    public static Func<int, string?>? SlotId;
+    public static Func<DeckSettings, int, (double Width, double Height)>? ExtensionSize;
+
+    public static bool IsExtensionPage(DeckPage page) => page is >= DeckPage.Extension0 and <= DeckPage.Extension3;
+    public static int SlotOf(DeckPage page) => IsExtensionPage(page) ? page - DeckPage.Extension0 : -1;
+
     public static bool Shown(DeckSettings settings, DeckPage page) => page switch
     {
-        DeckPage.Usage => settings.UsagePage, DeckPage.Music => settings.MusicPage, DeckPage.Monitor => settings.MonitorPage, _ => false
+        DeckPage.Usage => settings.UsagePage, DeckPage.Music => settings.MusicPage, DeckPage.Monitor => settings.MonitorPage,
+        >= DeckPage.Extension0 => SlotOccupied?.Invoke(SlotOf(page)) == true, _ => false
     };
 
     public static IReadOnlyList<DeckPage> Visible(DeckSettings settings) => settings.PageOrder.Where(page => Shown(settings, page)).ToList();
@@ -45,6 +55,14 @@ public static class DeckPages
         {
             case DeckPage.Music: settings.MusicWidth = width; settings.MusicHeight = height; break;
             case DeckPage.Monitor: settings.MonitorWidth = width; settings.MonitorHeight = height; break;
+            case >= DeckPage.Extension0:
+                // A plugin page's size is kept on its plugin's own settings entry, keyed by the plugin's id; a slot whose
+                // plugin is unknown carries nothing to key on, so the drag's size is not remembered until it loads.
+                if (SlotId?.Invoke(SlotOf(page)) is not { Length: > 0 } id) break;
+                var at = settings.Extensions.FindIndex(extension => extension.Id == id);
+                if (at < 0) settings.Extensions.Add(new ExtensionPageSettings(id, Width: width, Height: height));
+                else settings.Extensions[at] = settings.Extensions[at] with { Width = width, Height = height };
+                break;
             default: settings.Width = width; settings.Height = height; break;
         }
     }
@@ -53,6 +71,7 @@ public static class DeckPages
     {
         DeckPage.Music => (settings.MusicWidth, settings.MusicHeight),
         DeckPage.Monitor => (settings.MonitorWidth, settings.MonitorHeight),
+        >= DeckPage.Extension0 => ExtensionSize?.Invoke(settings, SlotOf(page)) ?? ExtensionSizes.Default,
         _ => (Math.Max(settings.Width, settings.MinimumWidth), settings.Height)
     };
 

@@ -235,6 +235,9 @@ internal static class IslandExtensions
             if (!ReferenceEquals(before, next)) changed = true;
         }
         _previousSlots = (Plugin?[])Slots.Clone();
+        // The page layer asks these per slot: whether a plugin page sits there, and the plugin id its settings are keyed by.
+        DeckPages.SlotOccupied = slot => slot >= 0 && slot < 4 && Slots[slot] is { Host.Pages.Count: > 0 };
+        DeckPages.SlotId = slot => slot >= 0 && slot < 4 ? Slots[slot]?.Id : null;
         if (ExtensionLog.Enabled)
         {
             foreach (var plugin in Plugins)

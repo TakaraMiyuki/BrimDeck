@@ -136,7 +136,12 @@ public partial class MainWindow
         bool back = Settings.PageOrder.IndexOf(page) < Settings.PageOrder.IndexOf(before);
         _handover.Send(picture, place, PageContent(page), back ? Handover.Back : Handover.Forward);
     }
-    private FrameworkElement PageContent(DeckPage page) => page switch { DeckPage.Music => MusicContent, DeckPage.Monitor => MonitorContent, _ => UsageContent };
+    private FrameworkElement PageContent(DeckPage page) => page switch
+    {
+        DeckPage.Music => MusicContent, DeckPage.Monitor => MonitorContent,
+        >= DeckPage.Extension0 => ExtensionHost(DeckPages.SlotOf(page)),
+        _ => UsageContent
+    };
     private void ShowPage(DeckPage page, bool animatePage)
     {
         _detailPopup?.Close(); _details = false; _page = page; _musicRenderKey = ""; _handover.Drop();
@@ -211,6 +216,15 @@ public partial class MainWindow
             bool current = CurrentPage == page;
             button.Visibility = DeckPages.Shown(Settings, page) ? Visibility.Visible : Visibility.Collapsed;
             button.Foreground = UI.Brush(current ? UI.Primary : UI.Secondary);
+        }
+        // The plugin tabs stand in the same panel; color the open one and hide the tabs whose plugin is gone or off,
+        // so the switch only ever takes the room the shown pages need.
+        foreach (var pair in _extensionButtons)
+        {
+            var page = ExtensionPageOf(pair.Key);
+            bool current = CurrentPage == page;
+            pair.Value.Visibility = DeckPages.Shown(Settings, page) ? Visibility.Visible : Visibility.Collapsed;
+            pair.Value.Foreground = UI.Brush(current ? UI.Primary : UI.Secondary);
         }
         PlacePageCapsule();
         ApplicationPages.Margin = new Thickness(ApplicationPagesLeft(_header.Side), 0, 0, 0);
@@ -421,6 +435,7 @@ public partial class MainWindow
         // Only a page that was on screen hands over; one that arrives by the page switch or with the panel opening comes in whole.
         bool shown = MusicContent.IsVisible && _expanded && !_preview;
         RefreshStatus();
+        HideExtensionHosts();
         UsageContent.Visibility = Visibility.Collapsed; MonitorContent.Visibility = Visibility.Collapsed; MusicContent.Visibility = Visibility.Visible;
         ModelToolbar.Visibility = Visibility.Collapsed; ApplicationPages.Visibility = Visibility.Collapsed; ClockLabel.Visibility = Visibility.Visible;
         double h = ContentCanvas.Height, w = ContentCanvas.Width;

@@ -118,6 +118,7 @@ public partial class MainWindow : Window
         HoverZone.Opacity = 0;
         _handover = new PageHandover(LeavingContent);
         InitializeMusic();
+        InitializeExtensionPages();
         InitializeMonitor();
         InitializeResize();
         InitializeScale();

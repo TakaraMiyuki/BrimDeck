@@ -34,7 +34,9 @@ public sealed record FullscreenRule(string Name = "", string Path = "")
 public enum ProviderId { Claude, Codex, Antigravity, Cursor, GlmChina, NewApi, Sub2Api, Custom, ZCode = 10, GlmGlobal = 11, Dsh = 12, DeepSeek = 13, GrokBot = 14, Kimi = 15, KimiApi = 16, OpenCode = 17, OpenCodeGo = 18, OpenRouter = 19 }
 public enum SettingsTheme { System, Light, Dark }
 // Pages are saved as numbers, so new members go at the end; their order in the page switch is DeckSettings.PageOrder.
-public enum DeckPage { Usage, Music, Monitor }
+// Extension0..3 are the slots a plugin page can occupy: the app loads the plugins and fills the slots in the plugins'
+// order, and a plugin page enters the saved page order when its slot is occupied. A slot left empty hides its page.
+public enum DeckPage { Usage, Music, Monitor, Extension0, Extension1, Extension2, Extension3 }
 public enum DefaultDeckPage { Last, Usage, Music, Monitor }
 // What the mouse wheel does over the expanded panel. Saved as numbers, so new members go at the end.
 public enum MouseWheelAction { None, Pages, Volume }
@@ -85,6 +87,15 @@ public static class ClockColors
 // an entry whose plugin is gone is kept, so a return restores the page as it was. The slot is where the scan last put
 // that plugin. -1 is "never placed", which is what a file written before this, or a folder not loaded yet, reads as.
 public sealed record ExtensionPageSettings(string Id = "", bool Shown = true, double Width = 440, double Height = 160, int Slot = -1);
+
+// A plugin page's size: snug by default, with roomier steps for pages that draw more. The host clamps what the reader
+// drags into the page limits; the plugin's own settings entry carries what was chosen.
+public static class ExtensionSizes
+{
+    public static readonly (double Width, double Height) Default = (440, 160);
+    public static (double Width, double Height) For(PanelSize size) => size switch
+    { PanelSize.Compact => (440, 160), PanelSize.Spacious => (660, 260), _ => (520, 200) };
+}
 
 // One plugin's face, remembered from its last successful load. The plugins page shows a file's name and glyph even
 // while the file is not loaded (disabled, failed, taken away), so its row keeps telling the reader which plugin it is.

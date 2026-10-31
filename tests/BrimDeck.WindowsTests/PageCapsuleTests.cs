@@ -20,6 +20,9 @@ public partial class MainWindow
     private readonly Button AIUsageButton = new() { Content = "Usage", Width = 60, Height = 24 };
     private readonly Button MusicPageButton = new() { Content = "Music", Width = 60, Height = 24 };
     private readonly Button MonitorPageButton = new() { Content = "Monitor", Width = 60, Height = 24 };
+    // The plugin-page tabs live in MainWindow.ExtensionPages.cs, which this test project does not compile; the capsule
+    // test orders built-in pages only, so the stub routes every extension slot to the usage button.
+    private Button ExtensionPageButton(int slot) => AIUsageButton;
     private readonly Grid PageSwitch = new();
     private readonly Border PageCapsule = new() { Width = 60, Height = 24 };
     private readonly TranslateTransform PageCapsuleShift = new();

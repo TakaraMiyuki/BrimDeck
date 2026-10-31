@@ -514,7 +514,8 @@ public sealed partial class SettingsWindow : Window
         void FillStarts()
         {
             starts = [(DefaultDeckPage.Last, Loc.T("上次停留的页面", "Last viewed page"))];
-            foreach (var page in DeckPages.Visible(S))
+            // Plugin pages open where they were last left (DefaultPage carries no extension members yet).
+            foreach (var page in DeckPages.Visible(S).Where(page => !DeckPages.IsExtensionPage(page)))
                 starts.Add(page switch
                 {
                     DeckPage.Music => (DefaultDeckPage.Music, Loc.T("音乐", "Music")),
@@ -531,9 +532,10 @@ public sealed partial class SettingsWindow : Window
         SectionTitle(Loc.T("显示的页面", "Pages shown"), help: () => Loc.T("除了在下面设置宽度与高度，也可以把鼠标移到展开面板的左右两边、底边或底角，直接拖动调整大小。",
             "Besides setting the width and height below, you can point at the expanded panel's sides, bottom edge or bottom corners and drag them to resize it."));
         // The rows are in the order of the page switch; dragging one by its handle moves its page there at once.
+        // Plugin pages have no row of their own yet; they keep their place in the saved order (the drag below appends them).
         var pages = new StackPanel();
         _pageRows.Clear();
-        foreach (var page in S.PageOrder)
+        foreach (var page in S.PageOrder.Where(page => !DeckPages.IsExtensionPage(page)))
             pages.Children.Add(page switch
             {
                 DeckPage.Music => SizeRow(Loc.T("显示音乐", "Show music"), Loc.T("音乐", "music"), page, S.MusicPage, value => { Change(s => s.MusicPage = value); FillStarts(); }, Collect(MusicSizeControls), pages, FillStarts),
@@ -590,7 +592,8 @@ public sealed partial class SettingsWindow : Window
         AttachDrag(handle, () => rows, PageRowHeight, list =>
         {
             var order = list.Children.OfType<Border>().Where(b => b.Tag is DeckPage).Select(b => (DeckPage)b.Tag).ToArray();
-            Change(s => s.PageOrder = [.. order]);
+            // The plugin pages have no rows here; they keep their saved places, appended after the built-in ones.
+            Change(s => s.PageOrder = [.. order, .. s.PageOrder.Where(DeckPages.IsExtensionPage).Except(order)]);
             reordered();
         }, ClosePageSizes);
         return item;

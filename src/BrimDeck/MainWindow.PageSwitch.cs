@@ -42,5 +42,10 @@ public partial class MainWindow
         }
         for (int i = 0; i < order.Count; i++) order[i].Margin = new Thickness(i == 0 ? 0 : 1, 0, 0, 0);
     }
-    private Button PageButton(DeckPage page) => page switch { DeckPage.Music => MusicPageButton, DeckPage.Monitor => MonitorPageButton, _ => AIUsageButton };
+    private Button PageButton(DeckPage page) => page switch
+    {
+        DeckPage.Music => MusicPageButton, DeckPage.Monitor => MonitorPageButton,
+        >= DeckPage.Extension0 => ExtensionPageButton(DeckPages.SlotOf(page)),
+        _ => AIUsageButton
+    };
 }

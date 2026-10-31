@@ -178,7 +178,18 @@ public sealed partial class SettingsWindow
         AttachDrag(handle, () => rows, PluginRowHeight, arranged =>
         {
             var order = arranged.Children.OfType<Border>().Where(b => b.Tag is string).Select(b => (string)b.Tag).ToList();
-            Change(s => s.PluginsOrder = order);
+            Change(s =>
+            {
+                s.PluginsOrder = order;
+                // The page switch follows at once: the plugin pages are re-laid in the plugins' order, keeping the
+                // block position they hold among the built-in pages.
+                var pageOf = IslandExtensions.Plugins.Where(plugin => plugin.Slot is >= 0 and < 4)
+                    .GroupBy(plugin => Path.GetFileName(plugin.File), StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(group => group.Key, group => DeckPage.Extension0 + group.First().Slot);
+                var sequence = order.Where(pageOf.ContainsKey).Select(file => pageOf[file]).ToList();
+                int at = 0;
+                s.PageOrder = s.PageOrder.Select(page => DeckPages.IsExtensionPage(page) && at < sequence.Count ? sequence[at++] : page).ToList();
+            });
         }, ClosePluginRows);
         return item;
     }
