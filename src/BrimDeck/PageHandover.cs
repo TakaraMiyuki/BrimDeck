@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
@@ -77,23 +77,30 @@ internal sealed class PageHandover
     }
 
     // A picture of a page as it is on screen, to leave in its place; null for a page that is not laid out.
-    public static Image? Capture(FrameworkElement page)
+    public static Image? Capture(FrameworkElement page, Brush? backdrop = null)
     {
         double width = page.ActualWidth, height = page.ActualHeight;
         if (!page.IsVisible || width < 1 || height < 1 || PresentationSource.FromVisual(page) is null) return null;
         // A page still arriving is pictured as it is drawn now: the brush takes the page's own opacity and shift with it
         // (checked: a page at half opacity and moved 10 DIP comes out so), so the picture leaves from where the page was.
-        return new Image { Source = Snapshot(page, width, height, VisualTreeHelper.GetDpi(page)), Width = width, Height = height, Stretch = Stretch.None,
+        return new Image { Source = Snapshot(page, width, height, VisualTreeHelper.GetDpi(page), backdrop), Width = width, Height = height, Stretch = Stretch.None,
             HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top };
     }
 
     // A frozen picture of an element's own area at the given scale, drawn one to one (Exactly), so its offset in its parent is
     // not part of it. Its own opacity and render transform are: the brush draws the element as it is drawn.
-    public static BitmapSource Snapshot(Visual element, double width, double height, DpiScale dpi)
+    public static BitmapSource Snapshot(Visual element, double width, double height, DpiScale dpi, Brush? backdrop = null)
     {
         var picture = new RenderTargetBitmap((int)Math.Ceiling(width * dpi.DpiScaleX), (int)Math.Ceiling(height * dpi.DpiScaleY), dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
         var drawing = new DrawingVisual();
-        using (var context = drawing.RenderOpen()) context.DrawRectangle(Exactly(element, width, height), null, new Rect(0, 0, width, height));
+        using (var context = drawing.RenderOpen())
+        {
+            // A page that draws on transparency (a WebView plugin page over the panel's surface) would leave as a
+            // wisp of its own strokes; a backdrop fills the picture as the page itself is filled, so it reads as a
+            // page leaving, like any other.
+            if (backdrop is not null) context.DrawRectangle(backdrop, null, new Rect(0, 0, width, height));
+            context.DrawRectangle(Exactly(element, width, height), null, new Rect(0, 0, width, height));
+        }
         picture.Render(drawing);
         picture.Freeze();
         return picture;
@@ -111,11 +118,13 @@ internal sealed class PageHandover
     }
 
     // Lets a captured page leave while content arrives. The picture keeps the place the page had (Place, taken before the
-    // switch) and is centred as the page was.
-    public void Send(UIElement? picture, Thickness place, FrameworkElement content, Handover motion)
+    // switch) and is centred as the page was. Arriving content that must not be animated itself — a WebView composition
+    // page, whose content does not follow WPF opacity — is uncovered instead: it already lies beneath the leaving
+    // picture, which fades off it toward the side.
+    public void Send(UIElement? picture, Thickness place, FrameworkElement content, Handover motion, bool animateArrival = true)
     {
         if (picture is null || motion == Handover.None || !Soft.Enabled) return;
-        Begin([picture], new Thickness(0, place.Top, 0, 0), content, motion);
+        Begin([picture], new Thickness(0, place.Top, 0, 0), content, motion, animateArrival: animateArrival);
     }
 
     // The rebuilt content waiting for its arrival to start; it is held out of sight until then.
@@ -124,8 +133,10 @@ internal sealed class PageHandover
     // The hand-over starts once the rebuilt page has been laid out and drawn: building it takes a frame or two, and a move
     // started at once lost its first part to them and jumped. Until then the old content stays as it was and the new one out
     // of sight. Timing and curve are the system monitor's (Soft.Follow): what leaves goes in about a fifth of a second, what
-    // arrives takes the short swap (motion-review C8; it took the monitor's move, 420 ms).
-    private void Begin(List<UIElement> leaving, Thickness margin, FrameworkElement content, Handover motion, double opacity = 1, double x = 0)
+    // arrives takes the short swap (motion-review C8; it took the monitor's move, 420 ms). A page that brings itself in
+    // inside a browser asks for animateArrival: the WPF opacity and shift would not reach it anyway, so only the picture
+    // of the page it replaces moves.
+    private void Begin(List<UIElement> leaving, Thickness margin, FrameworkElement content, Handover motion, double opacity = 1, double x = 0, bool animateArrival = true)
     {
         // A page switch lets what is still leaving finish; anything else starts afresh (a rebuild while dragging would pile up).
         if (motion is Handover.Forward or Handover.Back) Settle(); else Drop();
@@ -143,7 +154,11 @@ internal sealed class PageHandover
             foreach (var child in leaving) batch.Children.Add(child);
             _layer.Children.Add(batch);
             _waiting = batch;
-            _holding = content; content.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 0, TimeSpan.Zero));
+            // A page that brings itself in inside a browser (a plugin's WebView) is not driven by WPF opacity at all:
+            // pinning it at zero and lifting it is the only thing that would ever have made it appear, so it is left to
+            // draw itself from the first frame instead of being held out of sight.
+            if (animateArrival) { _holding = content; content.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 0, TimeSpan.Zero)); }
+            else _holding = null;
         }
         content.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
         {
@@ -156,11 +171,14 @@ internal sealed class PageHandover
             var away = Soft.Fade(opacity, 0, leave, Soft.Follow);
             away.Completed += (_, _) => Remove(batch);
             batch.BeginAnimation(UIElement.OpacityProperty, away);
-            content.BeginAnimation(UIElement.OpacityProperty, Arrival(0, 1, Soft.Short));
+            // The way out belongs to the picture whoever is arriving: a page that brings itself in inside a browser still
+            // leaves with the slide, so both directions of a switch keep moving together.
+            bool arrives = motion != Handover.Dissolve && animateArrival;
+            if (arrives) content.BeginAnimation(UIElement.OpacityProperty, Arrival(0, 1, Soft.Short));
             if (motion == Handover.Morph) return;
             double direction = motion == Handover.Back ? -1 : 1;
             batch.RenderTransform.BeginAnimation(TranslateTransform.XProperty, Soft.Fade(x, x - direction * Travel, leave, Soft.Follow));
-            shift.BeginAnimation(TranslateTransform.XProperty, Arrival(direction * Travel, 0, Soft.Short));
+            if (arrives) shift.BeginAnimation(TranslateTransform.XProperty, Arrival(direction * Travel, 0, Soft.Short));
         });
     }
 

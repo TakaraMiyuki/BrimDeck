@@ -54,6 +54,12 @@
               <Grid.RowDefinitions><RowDefinition x:Name="ToolbarRow" Height="36"/><RowDefinition Height="*"/></Grid.RowDefinitions>
               <Grid Grid.Row="1" x:Name="UsageContent" Margin="6,0,6,10"/>
               <Grid Grid.Row="1" x:Name="MonitorContent" Visibility="Collapsed"/>
+              <Grid Grid.Row="1" x:Name="ExtensionContent" Visibility="Collapsed">
+                <!-- Lifted over a plugin page a switch is arriving at, in the panel's own surface: a WebView that was
+                     off screen keeps showing its last composited frame for a few frames after it comes back, and that
+                     full-brightness beat is what reads as two pages overlapping. -->
+                <Border x:Name="ArrivalVeil" IsHitTestVisible="False" Visibility="Collapsed"/>
+              </Grid>
               <Grid Grid.Row="1" x:Name="MusicContent" Visibility="Collapsed"/>
               <!-- What a rebuilt usage or media page replaced, while it leaves (PageHandover). It spans the header row too and is
                    placed where the old content was: the next page's header row may be taller or shorter. -->
@@ -70,7 +76,7 @@
                          Width="28" Height="24" CornerRadius="6" IsHitTestVisible="False">
                    <Border.RenderTransform><TranslateTransform x:Name="PageCapsuleShift"/></Border.RenderTransform>
                  </Border>
-                 <StackPanel Orientation="Horizontal">
+                 <StackPanel Orientation="Horizontal" x:Name="PageButtons">
                 <Button x:Name="AIUsageButton" Style="{StaticResource PanelIconButton}" Width="28" Height="24"
                         Click="AIUsage_Click">
                   <Viewbox Width="16" Height="16"><Canvas Width="24" Height="24">

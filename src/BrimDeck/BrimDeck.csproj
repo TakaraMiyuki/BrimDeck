@@ -47,4 +47,7 @@
     <PublishReadyToRunExclude Include="Microsoft.Windows.SDK.NET.dll" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\BrimDeck.Island\BrimDeck.Island.csproj" />
+  </ItemGroup>
 </Project>

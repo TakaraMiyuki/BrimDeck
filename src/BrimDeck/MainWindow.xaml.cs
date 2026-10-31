@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -114,6 +114,7 @@ public partial class MainWindow : Window
             if (_expanded && !_preview) PointerChanged(_pointerInside);
         }) { Interval = TimeSpan.FromSeconds(1) };
         InitializeComponent();
+        BuildExtensionButtons();
         // Out of sight until the boot (or, without animations, until it has its place): the window shows before it is placed.
         HoverZone.Opacity = 0;
         _handover = new PageHandover(LeavingContent);
@@ -128,14 +129,17 @@ public partial class MainWindow : Window
         _clock.Tick += (_, _) => { UpdateClock(); ScheduleClock(); if (_expanded) RenderUsage(); else if (OffPeakChanged()) RenderCompact(); if (_lead is null) _app.CheckUpdatesIfDue(); };
         _alertTimer.Tick += (_, _) => { _alertTimer.Stop(); _alert = null; RenderCompact(); if (!_expanded) SetExpanded(false); };
         // A new foreground context closes the panel directly (ApplySettings lays it out collapsed), so SetExpanded never sees the
-        // panel turn from open to closed: the collapsed title is set to scroll its laps again here, as SetExpanded does.
+        // panel turn from open to closed: the collapsed title is set to scroll its laps again here, as SetExpanded does. The app's
+        // rules put the panel away without the expand path running either, so the reclaim grace for the pages starts here too.
         _host.ContextChanged += context =>
         {
+            ExtensionLog.Write("panel: context " + context + " expanded=" + _expanded);
             _context = context;
             if (!_preview && _detailPopup is null && _popupReturnArea is null && MediaSourceButton.ContextMenu?.IsOpen != true)
             {
                 if (_expanded) ReplayCompactTitle();
                 _expanded = false;
+                _app.PanelUseChanged();
             }
             ApplySettings(true);
         };
@@ -578,6 +582,12 @@ public partial class MainWindow : Window
         if (expanded && !_expanded) _handover.Drop();
         bool wasExpanded = _expanded;
         _expanded = expanded;
+        if (wasExpanded != _expanded) ExtensionLog.Write("panel: expanded=" + _expanded + " page=" + CurrentPage + " context=" + _context);
+        // Opening the panel builds the plugin pages' views before the first switch to them, so no switch pays a cold
+        // WebView. Building is skipped while collapsed — a closed panel needs no pages. The reclaim of pages nobody
+        // watches also follows this: an open panel keeps its pages, a closed one gives them up after the grace.
+        if (expanded && !wasExpanded) EnsureExtensionViews();
+        if (wasExpanded != _expanded) _app.PanelUseChanged();
         _escapeDismissal?.SetEnabled(expanded && !_preview);
         if (!expanded) { CloseSourceMenu(); _popupReturnArea = null; _leave.Stop(); _pageSwitchHold.Stop(); _detailPopup?.Close(); }
         if (wasExpanded && !expanded) { HotkeyPanelCollapsed(); ReplayCompactTitle(); _app.RequestTrim(); }
