@@ -34,17 +34,18 @@ public partial class MainWindow
     private void OrderPageButtons()
     {
         if (AIUsageButton.Parent is not Panel buttons) return;
-        // Plugin tabs and anything else that joined the strip are kept, appended after the built-in pages in the order
-        // they were added — the reader's arrangement walks the built-ins; a plugin tab follows them by its slot.
-        var extras = buttons.Children.Cast<UIElement>()
-            .Where(child => child is not System.Windows.Controls.Button button
-                || (button != AIUsageButton && button != MusicPageButton && button != MonitorPageButton)).ToList();
-        var order = Settings.PageOrder.Select(PageButton).ToList();
-        if (!buttons.Children.Cast<UIElement>().SequenceEqual(order.Concat(extras)))
+        // The saved arrangement first — extension pages included where the reader put them, which a file written by the
+        // web build already carries — then any plugin tab the arrangement has never heard of, in slot order. A page
+        // whose plugin is gone answers with the usage button and collapses into it (Distinct), so a dead slot leaves a
+        // hole in the strip. Every Add is guarded: a button already in the strip is skipped, never re-parented.
+        var order = Settings.PageOrder.Select(PageButton)
+            .Where(buttons.Children.Contains).Distinct().ToList();
+        order.AddRange(_extensionButtons.OfType<System.Windows.Controls.Button>().Where(button => !order.Contains(button)));
+        if (!buttons.Children.Cast<UIElement>().SequenceEqual(order))
         {
             buttons.Children.Clear();
-            foreach (var button in order) buttons.Children.Add(button);
-            foreach (var extra in extras) buttons.Children.Add(extra);
+            foreach (var button in order)
+                if (!buttons.Children.Contains(button)) buttons.Children.Add(button);
         }
         for (int i = 0; i < order.Count; i++) order[i].Margin = new Thickness(i == 0 ? 0 : 1, 0, 0, 0);
     }
