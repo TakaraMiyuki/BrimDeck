@@ -21,8 +21,14 @@ public static class DeckPages
     public static bool Shown(DeckSettings settings, DeckPage page) => page switch
     {
         DeckPage.Usage => settings.UsagePage, DeckPage.Music => settings.MusicPage, DeckPage.Monitor => settings.MonitorPage,
-        >= DeckPage.Extension0 => SlotOccupied?.Invoke(SlotOf(page)) == true, _ => false
+        >= DeckPage.Extension0 => SlotOccupied?.Invoke(SlotOf(page)) == true && ExtensionShown(settings, SlotOf(page)), _ => false
     };
+
+    // A plugin page shows while its plugin is loaded, unless the reader turned that page off in the expanded view's
+    // editor (kept on the plugin's own settings entry). A plugin the host cannot name shows.
+    private static bool ExtensionShown(DeckSettings settings, int slot) =>
+        SlotId?.Invoke(slot) is not { Length: > 0 } id
+        || settings.Extensions.FirstOrDefault(extension => extension.Id == id) is not { Shown: false };
 
     public static IReadOnlyList<DeckPage> Visible(DeckSettings settings) => settings.PageOrder.Where(page => Shown(settings, page)).ToList();
 

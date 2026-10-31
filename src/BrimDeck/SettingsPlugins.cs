@@ -19,8 +19,6 @@ public sealed partial class SettingsWindow
     private const double PluginRowHeight = 44;
     // Which plugin rows stand open, kept while the page is rebuilt; keyed by the DLL file name.
     private readonly HashSet<string> _pluginOpenRows = [];
-    // The rows as built, so a drag's start can collapse the open ones in place instead of rebuilding the page.
-    private readonly List<(Border Row, StackPanel Details, Button Arrow)> _pluginRowRefs = [];
 
     private void PluginsPage()
     {
@@ -67,8 +65,7 @@ public sealed partial class SettingsWindow
             return;
         }
         var list = new StackPanel();
-        _pluginRowRefs.Clear();
-        foreach (var file in files) list.Children.Add(PluginRow(file, list));
+        foreach (var file in files) list.Children.Add(PluginRow(file));
         Group(list);
         UpdateDividers(list);
         // The collapsed row had less room than the widgets asked: the reader can widen it or turn auto-width back on.
@@ -94,7 +91,7 @@ public sealed partial class SettingsWindow
 
     // One row per file: the drag handle, the glyph and title (greyed while disabled), the enable toggle and the arrow
     // that opens what the plugin registered, where it came from and why it may not have loaded.
-    private FrameworkElement PluginRow(string file, StackPanel rows)
+    private FrameworkElement PluginRow(string file)
     {
         bool disabled = S.PluginsDisabledFiles.Any(name => string.Equals(name, file, StringComparison.OrdinalIgnoreCase));
         var plugin = IslandExtensions.Plugins.FirstOrDefault(p => string.Equals(Path.GetFileName(p.File), file, StringComparison.OrdinalIgnoreCase));
@@ -165,33 +162,10 @@ public sealed partial class SettingsWindow
         foreach (var line in DetailLines(file, plugin, known, failure, skipped)) detailsBody.Children.Add(line);
         details = detailsBody;
 
-        var body = new StackPanel(); body.Children.Add(header); body.Children.Add(details);
-        body.Margin = new Thickness(4, 0, 0, 0);
-        Grid.SetColumn(body, 1);
-        var handle = new Border { Width = 22, Height = PluginRowHeight, VerticalAlignment = VerticalAlignment.Top, Background = Brushes.Transparent, Cursor = Cursors.SizeAll,
-            HorizontalAlignment = HorizontalAlignment.Left, Child = Grip(TextTertiary) };
-        var row = new Grid { Background = Brushes.Transparent };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(PartHandleWidth) }); row.ColumnDefinitions.Add(new ColumnDefinition());
-        row.Children.Add(handle); row.Children.Add(body);
-        item = new Border { Child = row, Height = open ? double.NaN : PluginRowHeight, BorderBrush = UI.Brush(_palette.RowDivider), BorderThickness = new Thickness(0), Tag = file, RenderTransform = new TranslateTransform() };
-        _pluginRowRefs.Add((item, details, arrow));
-        // The details close when a drag begins, so every row is one line high while they move.
-        AttachDrag(handle, () => rows, PluginRowHeight, arranged =>
-        {
-            var order = arranged.Children.OfType<Border>().Where(b => b.Tag is string).Select(b => (string)b.Tag).ToList();
-            Change(s =>
-            {
-                s.PluginsOrder = order;
-                // The page switch follows at once: the plugin pages are re-laid in the plugins' order, keeping the
-                // block position they hold among the built-in pages.
-                var pageOf = IslandExtensions.Plugins.Where(plugin => plugin.Slot is >= 0 and < 4)
-                    .GroupBy(plugin => Path.GetFileName(plugin.File), StringComparer.OrdinalIgnoreCase)
-                    .ToDictionary(group => group.Key, group => DeckPage.Extension0 + group.First().Slot);
-                var sequence = order.Where(pageOf.ContainsKey).Select(file => pageOf[file]).ToList();
-                int at = 0;
-                s.PageOrder = s.PageOrder.Select(page => DeckPages.IsExtensionPage(page) && at < sequence.Count ? sequence[at++] : page).ToList();
-            });
-        }, ClosePluginRows);
+        // The plugins' order is the collapsed and expanded views' own editors' business (the parts and the pages
+        // editors); this page only turns plugins on and off.
+        var rowPanel = new StackPanel(); rowPanel.Children.Add(header); rowPanel.Children.Add(details);
+        item = new Border { Child = rowPanel, Height = open ? double.NaN : PluginRowHeight, BorderBrush = UI.Brush(_palette.RowDivider), BorderThickness = new Thickness(0), Tag = file, RenderTransform = new TranslateTransform() };
         return item;
     }
 
@@ -220,17 +194,6 @@ public sealed partial class SettingsWindow
         else if (!disabled && known is { } info && info.Id.Length > 0)
             yield return TextLine(info.Id, 11.5, TextSecondary);
         yield return TextLine(file, 11, TextTertiary);
-    }
-
-    private void ClosePluginRows()
-    {
-        _pluginOpenRows.Clear();
-        foreach (var (row, details, arrow) in _pluginRowRefs)
-        {
-            details.Visibility = Visibility.Collapsed;
-            PointArrow(arrow, false);
-            row.Height = PluginRowHeight;
-        }
     }
 
     // An outline button with a small stroke glyph before its text, as the app rules' add button is.

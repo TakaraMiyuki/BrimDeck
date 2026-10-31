@@ -42,12 +42,13 @@ public enum DefaultDeckPage { Last, Usage, Music, Monitor }
 public enum MouseWheelAction { None, Pages, Volume }
 public enum CompactMusicText { None, Title, Lyrics }
 // The parts of the collapsed notch and capsule that are put in order, left to right. The cover stays at the left; Music places
-// only the title or lyric. Saved as numbers, so new members go at the end.
-public enum CompactPart { Rings, Music, Monitor, Equalizer, Clock }
+// only the title or lyric. Plugins is the group of the plugins' own widgets, each drawn at the width its plugin asked.
+// Saved as numbers, so new members go at the end.
+public enum CompactPart { Rings, Music, Monitor, Equalizer, Clock, Plugins }
 public static class CompactParts
 {
     // A file saved before the equalizer and the clock were put in order adds them after its parts, the clock last, where they stood.
-    public static IReadOnlyList<CompactPart> Default { get; } = [CompactPart.Rings, CompactPart.Music, CompactPart.Monitor, CompactPart.Equalizer, CompactPart.Clock];
+    public static IReadOnlyList<CompactPart> Default { get; } = [CompactPart.Rings, CompactPart.Music, CompactPart.Monitor, CompactPart.Equalizer, CompactPart.Clock, CompactPart.Plugins];
     // Each known part once, in the saved order; a part missing from the file takes its default place after the others.
     public static List<CompactPart> Normalize(IEnumerable<CompactPart>? order) => [.. (order ?? []).Where(part => Enum.IsDefined(part)).Concat(Default).Distinct()];
 }
@@ -420,6 +421,9 @@ public sealed class DeckSettings
     // The notch and the capsule each switch the system readings on; what they show is shared.
     public bool NotchMonitor { get; set; }
     public bool CapsuleMonitor { get; set; }
+    // The notch and the capsule each switch the plugins' own widgets on; what they show is the plugins' to draw.
+    public bool NotchPlugins { get; set; } = true;
+    public bool CapsulePlugins { get; set; } = true;
     // The order of the quota rings, the title or lyric, the system readings, the equalizer and the clock, for the notch and the capsule each.
     public List<CompactPart> NotchOrder { get => _notchOrder; set => _notchOrder = CompactParts.Normalize(value); }
     public List<CompactPart> CapsuleOrder { get => _capsuleOrder; set => _capsuleOrder = CompactParts.Normalize(value); }

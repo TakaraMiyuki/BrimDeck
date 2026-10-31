@@ -58,9 +58,36 @@ public sealed partial class SettingsWindow
         var rows = new StackPanel();
         _partOptions.Clear();
         foreach (var part in S.CompactOrder(style))
-            rows.Children.Add(part switch { CompactPart.Equalizer => EqualizerRow(style, rows), CompactPart.Clock => ClockRow(style, rows), _ => PartRow(style, part, rows) });
+            rows.Children.Add(part switch
+            {
+                CompactPart.Equalizer => EqualizerRow(style, rows),
+                CompactPart.Clock => ClockRow(style, rows),
+                CompactPart.Plugins => PluginsRow(style, rows),
+                _ => PartRow(style, part, rows)
+            });
         UpdateDividers(rows);
         Group(rows);
+    }
+
+    // The plugins' own widgets, one row for the group: the handle, the name and the switch — the widgets inside draw at
+    // the widths their plugins ask, and a plugin sits here only while it is loaded and wants to.
+    private Border PluginsRow(CompactStyle style, StackPanel rows)
+    {
+        bool notch = style == CompactStyle.Notch;
+        var (title, shown) = notch
+            ? (Loc.T("插件部件", "Plugin widgets"), S.NotchPlugins)
+            : (Loc.T("插件部件", "Plugin widgets"), S.CapsulePlugins);
+        void Show(bool on) => Change(s => { if (notch) s.NotchPlugins = on; else s.CapsulePlugins = on; });
+        var row = new Grid { Background = Brushes.Transparent };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(PartHandleWidth) }); row.ColumnDefinitions.Add(new ColumnDefinition()); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var handle = new Border { Width = 22, Background = Brushes.Transparent, Cursor = Cursors.SizeAll, HorizontalAlignment = HorizontalAlignment.Left, Child = Grip(TextTertiary) };
+        row.Children.Add(handle);
+        var label = SettingLabel(title); Grid.SetColumn(label, 1); row.Children.Add(label);
+        var toggle = new CheckBox { Style = (Style)FindResource("SettingsToggle"), IsChecked = shown, Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
+        AutomationProperties.SetName(toggle, title); toggle.Checked += (_, _) => Show(true); toggle.Unchecked += (_, _) => Show(false);
+        Grid.SetColumn(toggle, 2); row.Children.Add(toggle);
+        AttachPartDrag(handle, style, rows);
+        return new Border { Child = row, Height = PartRowHeight, BorderBrush = UI.Brush(_palette.RowDivider), BorderThickness = new Thickness(0), Tag = CompactPart.Plugins, RenderTransform = new TranslateTransform() };
     }
 
     private const double PartRowHeight = 44, PartHandleWidth = 40;

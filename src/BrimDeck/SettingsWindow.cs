@@ -531,15 +531,16 @@ public sealed partial class SettingsWindow : Window
         start.SelectionChanged += (_, _) => { if (!filling && start.SelectedIndex >= 0) Change(s => s.DefaultPage = starts[start.SelectedIndex].Value); };
         SectionTitle(Loc.T("显示的页面", "Pages shown"), help: () => Loc.T("除了在下面设置宽度与高度，也可以把鼠标移到展开面板的左右两边、底边或底角，直接拖动调整大小。",
             "Besides setting the width and height below, you can point at the expanded panel's sides, bottom edge or bottom corners and drag them to resize it."));
-        // The rows are in the order of the page switch; dragging one by its handle moves its page there at once.
-        // Plugin pages have no row of their own yet; they keep their place in the saved order (the drag below appends them).
+        // The rows are in the order of the page switch; dragging one by its handle moves its page there at once. The
+        // plugin pages stand among them, each with a switch of its own (no sizes of its own yet).
         var pages = new StackPanel();
         _pageRows.Clear();
-        foreach (var page in S.PageOrder.Where(page => !DeckPages.IsExtensionPage(page)))
+        foreach (var page in S.PageOrder)
             pages.Children.Add(page switch
             {
                 DeckPage.Music => SizeRow(Loc.T("显示音乐", "Show music"), Loc.T("音乐", "music"), page, S.MusicPage, value => { Change(s => s.MusicPage = value); FillStarts(); }, Collect(MusicSizeControls), pages, FillStarts),
                 DeckPage.Monitor => SizeRow(Loc.T("显示系统监控", "Show system monitor"), Loc.T("系统监控", "system monitor"), page, S.MonitorPage, value => { Change(s => s.MonitorPage = value); FillStarts(); }, Collect(MonitorSizeControls), pages, FillStarts),
+                >= DeckPage.Extension0 => ExtensionPageRow(page, pages),
                 _ => SizeRow(Loc.T("显示 AI 用量", "Show AI usage"), Loc.T("AI 用量", "AI usage"), page, S.UsagePage, value => { Change(s => s.UsagePage = value); FillStarts(); }, Collect(UsageSizes), pages, FillStarts)
             });
         UpdateDividers(pages);
@@ -592,8 +593,7 @@ public sealed partial class SettingsWindow : Window
         AttachDrag(handle, () => rows, PageRowHeight, list =>
         {
             var order = list.Children.OfType<Border>().Where(b => b.Tag is DeckPage).Select(b => (DeckPage)b.Tag).ToArray();
-            // The plugin pages have no rows here; they keep their saved places, appended after the built-in ones.
-            Change(s => s.PageOrder = [.. order, .. s.PageOrder.Where(DeckPages.IsExtensionPage).Except(order)]);
+            Change(s => s.PageOrder = [.. order]);
             reordered();
         }, ClosePageSizes);
         return item;
@@ -602,6 +602,43 @@ public sealed partial class SettingsWindow : Window
     {
         _openSizes.Clear();
         foreach (var (row, sizes, arrow) in _pageRows) { sizes.Visibility = Visibility.Collapsed; PointArrow(arrow, false); row.Height = PageRowHeight; }
+    }
+
+    // The plugin page's row in the expanded view's page editor: the handle, the plugin's name and the switch. A page
+    // switched off keeps its place in the order and its size, and comes back with the switch.
+    private Border ExtensionPageRow(DeckPage page, StackPanel rows)
+    {
+        int slot = DeckPages.SlotOf(page);
+        var plugin = slot >= 0 && slot < 4 ? IslandExtensions.Slots[slot] : null;
+        string title = Loc.T("插件页", "Plugin page");
+        if (plugin is not null)
+            try { title = Loc.IsEnglish ? plugin.Extension.TitleEn : plugin.Extension.TitleZh; }
+            catch (Exception) { title = plugin.Id; }
+        else if (DeckPages.SlotId?.Invoke(slot) is { Length: > 0 } id) title = id;
+        bool shown = DeckPages.Shown(S, page);
+        var toggle = new CheckBox { Style = (Style)FindResource("SettingsToggle"), IsChecked = shown, Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
+        AutomationProperties.SetName(toggle, Loc.T("显示插件页", "Show plugin page") + " · " + title);
+        toggle.Checked += (_, _) => Change(s => SetExtensionPageShown(s, page, true));
+        toggle.Unchecked += (_, _) => Change(s => SetExtensionPageShown(s, page, false));
+        var controls = new StackPanel { Orientation = Orientation.Horizontal }; controls.Children.Add(toggle);
+        var header = Row(title, controls); header.Background = Brushes.Transparent;
+        var handle = new Border { Width = 22, Height = PageRowHeight, VerticalAlignment = VerticalAlignment.Top, Background = Brushes.Transparent, Cursor = Cursors.SizeAll,
+            HorizontalAlignment = HorizontalAlignment.Left, Child = Grip(TextTertiary) };
+        var row = new Grid { Background = Brushes.Transparent };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(PartHandleWidth) }); row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.Children.Add(handle); row.Children.Add(header);
+        Grid.SetColumn(header, 1);
+        return new Border { Child = row, Height = PageRowHeight, BorderBrush = UI.Brush(_palette.RowDivider), BorderThickness = new Thickness(0), Tag = page, RenderTransform = new TranslateTransform() };
+    }
+
+    // The shown switch of a plugin page, kept on the plugin's own settings entry; a plugin the host cannot name has no
+    // entry to write to, and the switch waits until it loads.
+    private static void SetExtensionPageShown(DeckSettings settings, DeckPage page, bool shown)
+    {
+        if (DeckPages.SlotId?.Invoke(DeckPages.SlotOf(page)) is not { Length: > 0 } id) return;
+        var at = settings.Extensions.FindIndex(extension => extension.Id == id);
+        if (at < 0) settings.Extensions.Add(new ExtensionPageSettings(id, Shown: shown));
+        else settings.Extensions[at] = settings.Extensions[at] with { Shown = shown };
     }
     private void QuickSizeRow(UniformGrid sizes)
     {
