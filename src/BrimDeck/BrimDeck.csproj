@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BrimDeck.Core\BrimDeck.Core.csproj" />
+    <ProjectReference Include="..\BrimDeck.Island\BrimDeck.Island.csproj" />
   </ItemGroup>
 
   <ItemGroup>

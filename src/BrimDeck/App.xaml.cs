@@ -88,6 +88,7 @@ public partial class App : Application
         SensorGuard.Start(folder);
         UseLanguage();
         PanelTheme.Use(Settings);
+        StartPlugins();
         ScheduleDaylight();
         // "跟随系统" follows the Windows app theme while BrimDeck runs.
         Microsoft.Win32.SystemEvents.UserPreferenceChanged += SystemThemeChanged;
@@ -174,8 +175,45 @@ public partial class App : Application
         _settingsWindow.Activate();
         _ = update ? _settingsWindow.ShowUpdateNoticeAsync() : _settingsWindow.CheckUpdatesOnOpenAsync();
     }
+    // The plugins load once, after the theme is on: a plugin creating WPF elements at Initialize is on the right
+    // thread and the right palette. A load that throws is the plugin system's own failure, not the app's — counted,
+    // and the second one in a row asks for the safe mode before the user has to diagnose it.
+    private void StartPlugins()
+    {
+        if (!Settings.EnablePlugins)
+        {
+            if (Settings.PluginsStartupFailures != 0) { Settings.PluginsStartupFailures = 0; QueueSave(); }
+            return;
+        }
+        try
+        {
+            IslandExtensions.SetPalette(Settings);
+            IslandExtensions.Load(Settings);
+            IslandExtensions.SetPalette(Settings);
+            RememberKnownPlugins();
+            if (Settings.PluginsStartupFailures != 0) { Settings.PluginsStartupFailures = 0; QueueSave(); }
+        }
+        catch (Exception ex)
+        {
+            Settings.PluginsStartupFailures++;
+            QueueSave();
+            if (Settings.PluginsStartupFailures < 2) return;
+            var choice = MessageBox.Show(
+                Loc.T("插件连续两次启动失败（", "Plugins failed to start twice in a row (") + ex.Message.Split('\n')[0] +
+                Loc.T("）。要进入安全模式（关闭插件功能）吗？", "). Enter safe mode (turn the plugin system off)?"),
+                "BrimDeck", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (choice == MessageBoxResult.Yes)
+            {
+                Settings.EnablePlugins = false;
+                Settings.PluginsStartupFailures = 0;
+                QueueSave();
+            }
+        }
+    }
+
     public void UpdateSettings(DeckSettings settings)
     {
+        var updateWatch = ExtensionLog.Enabled ? System.Diagnostics.Stopwatch.StartNew() : null;
         foreach (var previous in Settings.Apps)
         {
             var next = settings.Entry(previous.InstanceId);
@@ -193,6 +231,10 @@ public partial class App : Application
         bool styleChanged = settings.Style != Settings.Style;
         settings.Normalize(); Settings = settings;
         ApplyHotkeys();
+        // The palette and the plugin gates live with the settings instance: keep the loader current and the live
+        // views recolored when the theme or the monitor palette changed.
+        IslandExtensions.SetSettings(settings);
+        IslandExtensions.SetPalette(settings);
         // A panel whose collapsed row changes asks again as it is built (PresentMonitor).
         UpdateMonitorExtras();
         // Statuses and notes are worded when the data is read, so a new language reads the data again.
@@ -205,6 +247,11 @@ public partial class App : Application
         QueueSave();
         CollapsedChanged();
         if (dataChanged || syncEnabled || languageChanged) _ = Deck.RefreshAutomaticallyAsync(queueIfBusy: true);
+        if (updateWatch is { } watch)
+        {
+            watch.Stop();
+            ExtensionLog.Write($"ui: UpdateSettings took {watch.ElapsedMilliseconds}ms");
+        }
     }
     // The settings window's size group follows changes made on the panel (a drag, or content that changed the auto width).
     internal void CollapsedChanged() => _settingsWindow?.CollapsedChanged();
@@ -358,6 +405,34 @@ public partial class App : Application
         }));
     }
     // Settings changed outside UpdateSettings are written after the same short pause instead of immediately.
+    // The web host reclaimed pages when no panel showed them; the DLL host has nothing to reclaim. The call sites in
+    // the panel stay, so the shape of the wiring survives for the day this host grows something worth pausing.
+    internal void PanelUseChanged() { }
+
+    // The plugins page shows a file's name and glyph even while the file is not loaded (disabled or failed); remember
+    // them from each successful load, keyed by file name.
+    internal void RememberKnownPlugins()
+    {
+        var known = Settings.PluginsKnown;
+        bool changed = false;
+        foreach (var plugin in IslandExtensions.Plugins)
+        {
+            string file = Path.GetFileName(plugin.File);
+            string zh = "", en = "", glyph = "";
+            try { zh = plugin.Extension.TitleZh; en = plugin.Extension.TitleEn; glyph = plugin.Extension.Glyph; }
+            catch (Exception) { }
+            var previous = known.FirstOrDefault(info => string.Equals(info?.File, file, StringComparison.OrdinalIgnoreCase));
+            if (previous is { } info0)
+            {
+                if (info0.Id == plugin.Id && info0.TitleZh == zh && info0.TitleEn == en && info0.Glyph == glyph) continue;
+                known.Remove(info0);
+            }
+            known.Add(new PluginInfo(file, plugin.Id, zh, en, glyph));
+            changed = true;
+        }
+        if (changed) QueueSave();
+    }
+
     public void QueueSave() { _save.Stop(); _save.Start(); }
     // The settings are turned into text here, where they live, and written on the thread pool: writing the file (and the virus
     // scan that follows a write) took 60 ms and more, which showed as a stall after every page switch. Writes run one after

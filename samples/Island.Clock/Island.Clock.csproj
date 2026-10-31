@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>BrimDeck.Island.Clock</RootNamespace>
+    <AssemblyName>Island.Clock</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The contract comes from the host at run time; the plugin does not carry its own copy. -->
+    <ProjectReference Include="..\..\src\BrimDeck.Island\BrimDeck.Island.csproj" Private="false" />
+  </ItemGroup>
+
+</Project>

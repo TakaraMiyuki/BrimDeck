@@ -29,10 +29,12 @@ public sealed partial class SettingsWindow : Window
     private readonly TextBlock _status = new() { Visibility = Visibility.Collapsed, TextWrapping = TextWrapping.Wrap };
     private ScrollViewer _scroll = null!;
     private static string[] _pages => [Loc.T("常规", "General"), Loc.T("收起外观", "Collapsed view"), Loc.T("展开外观", "Expanded view"),
-        Loc.T("配额与统计", "Quotas and usage"), Loc.T("模型价格", "Model prices"), Loc.T("样式", "Style"), Loc.T("播放器", "Players"), Loc.T("关于 BrimDeck", "About BrimDeck"), Loc.T("面板主题", "Panel theme"), Loc.T("显示与读数", "Display and readings")];
+        Loc.T("配额与统计", "Quotas and usage"), Loc.T("模型价格", "Model prices"), Loc.T("样式", "Style"), Loc.T("播放器", "Players"), Loc.T("关于 BrimDeck", "About BrimDeck"), Loc.T("面板主题", "Panel theme"), Loc.T("显示与读数", "Display and readings"), Loc.T("插件", "Plugins")];
     // The order of the pages in the navigation; the theme page (ThemePage) is listed with the appearance pages, and the system
     // monitor's page (MonitorSettingsPage) has its own group after music, before About.
-    private static readonly int[] PageOrder = [0, 1, 2, ThemePage, 3, 4, 5, 6, MonitorSettingsPage, 7];
+    private static readonly int[] PageOrder = [0, 1, 2, ThemePage, 3, 4, 5, 6, MonitorSettingsPage, PluginsPageNumber, 7];
+    // The plugins page: its own group after the system monitor, before About.
+    private const int PluginsPageNumber = 10;
     private int _page;
     private bool _preview;
     private StackPanel? _appRows;
@@ -330,9 +332,9 @@ public sealed partial class SettingsWindow : Window
         _page = page; _navigation.Children.Clear(); _content.Children.Clear(); _aboutUpdateView = null; _scroll.ScrollToTop();
         foreach (int i in PageOrder)
         {
-            if (i is 0 or 3 or 5 or 7 or MonitorSettingsPage)
+            if (i is 0 or 3 or 5 or 7 or MonitorSettingsPage or PluginsPageNumber)
             {
-                var group = TextLine(i switch { 0 => Loc.T("基础设置", "Basics"), 3 => Loc.T("AI 用量", "AI usage"), MonitorSettingsPage => Loc.T("系统监控", "System monitor"), 5 => Loc.T("音乐", "Music"), _ => Loc.T("关于", "About") },10.5,TextTertiary);
+                var group = TextLine(i switch { 0 => Loc.T("基础设置", "Basics"), 3 => Loc.T("AI 用量", "AI usage"), MonitorSettingsPage => Loc.T("系统监控", "System monitor"), 5 => Loc.T("音乐", "Music"), PluginsPageNumber => Loc.T("拓展", "Extensions"), _ => Loc.T("关于", "About") },10.5,TextTertiary);
                 group.Margin = new Thickness(12, i == 0 ? 0 : 24, 0, 8); _navigation.Children.Add(group);
             }
             int target=i; bool selected=page==i;
@@ -352,7 +354,7 @@ public sealed partial class SettingsWindow : Window
             var reset=ActionButton(Loc.T("恢复默认", "Restore defaults"),ResetPage); reset.FontSize=11; DockPanel.SetDock(reset,Dock.Right); head.Children.Add(reset);
         }
         head.Children.Add(page == 7 ? Wordmark(28) : TextLine(_pages[page],24,TextPrimary,FontWeights.SemiBold)); _content.Children.Add(head);
-        switch(page) { case 0: General(); break; case 1: Compact(); break; case 2: Expanded(); break; case 3: Pages(); break; case 4: ModelPrices(); break; case 5: MusicStyle(); break; case 6: Players(); break; case 7: About(); break; case ThemePage: ThemesPage(); break; case MonitorSettingsPage: MonitorSettings(); break; }
+        switch(page) { case 0: General(); break; case 1: Compact(); break; case 2: Expanded(); break; case 3: Pages(); break; case 4: ModelPrices(); break; case 5: MusicStyle(); break; case 6: Players(); break; case 7: About(); break; case ThemePage: ThemesPage(); break; case MonitorSettingsPage: MonitorSettings(); break; case PluginsPageNumber: PluginsPage(); break; }
         if (_content.Children[^1] is Border lastGroup) lastGroup.Margin = new Thickness(lastGroup.Margin.Left, lastGroup.Margin.Top, lastGroup.Margin.Right, 0);
         // Apply the offset before the frame is drawn, so the rebuilt page never shows its top for a frame.
         if (keep > 0) { _scroll.UpdateLayout(); _scroll.ScrollToVerticalOffset(keep); _scroll.UpdateLayout(); }
@@ -360,8 +362,21 @@ public sealed partial class SettingsWindow : Window
     }
     // The scroll position of the page being rebuilt by a theme change, whose scroll viewer is replaced.
     private double _keptOffset;
-    private static Path NavigationIcon(int page, string color) => Stroke(page switch
+    // The extensions glyph: a plug in a ring, filled outline art on a 20 grid, scaled 0.8 into the 16 box.
+    private const string PluginsGlyph =
+        "M 8.382,0.725 C 13.042,0.725 15.359,4.164 15.359,7.272 C 15.359,8.594 14.808,9.940 13.831,10.718 C 13.333,11.113 12.723,11.362 12.035,11.365 C 11.438,11.368 10.820,11.186 10.201,10.811 C 9.637,11.261 8.994,11.556 8.322,11.612 C 7.499,11.681 6.694,11.389 6.043,10.713 L 6.009,10.678 C 5.989,10.657 5.961,10.626 5.925,10.588 C 5.853,10.512 5.752,10.406 5.636,10.284 C 5.404,10.039 5.112,9.734 4.874,9.485 L 4.822,9.424 C 4.578,9.111 4.605,8.659 4.896,8.379 L 5.088,8.193 L 4.424,7.504 C 4.196,7.267 4.203,6.889 4.440,6.661 C 4.677,6.433 5.055,6.440 5.283,6.677 L 5.947,7.367 L 7.552,5.821 L 6.888,5.133 C 6.660,4.896 6.668,4.518 6.905,4.290 C 7.142,4.062 7.519,4.069 7.748,4.306 L 8.411,4.995 L 8.609,4.804 C 8.922,4.504 9.420,4.514 9.719,4.828 L 10.887,6.055 C 11.553,6.741 11.816,7.556 11.709,8.378 C 11.637,8.930 11.400,9.452 11.056,9.922 C 11.421,10.104 11.746,10.175 12.029,10.174 C 12.420,10.171 12.777,10.033 13.089,9.785 C 13.730,9.275 14.168,8.303 14.168,7.272 C 14.167,4.742 12.307,1.917 8.382,1.917 C 5.103,1.917 2.270,4.423 2.050,7.576 C 1.803,11.105 4.300,14.083 8.100,14.083 C 9.544,14.083 10.971,13.722 11.962,12.955 C 12.222,12.754 12.597,12.802 12.798,13.062 C 12.999,13.322 12.951,13.696 12.691,13.897 C 11.425,14.878 9.708,15.275 8.100,15.275 C 3.568,15.274 0.569,11.670 0.860,7.493 C 1.128,3.665 4.529,0.725 8.382,0.725 Z M 6.016,8.955 C 6.182,9.129 6.353,9.309 6.500,9.463 C 6.616,9.585 6.717,9.692 6.789,9.768 C 6.825,9.806 6.855,9.838 6.874,9.858 L 6.905,9.890 C 7.315,10.314 7.771,10.461 8.223,10.424 C 8.693,10.384 9.216,10.137 9.702,9.670 C 10.194,9.196 10.467,8.687 10.528,8.224 C 10.585,7.783 10.459,7.324 10.029,6.883 L 10.024,6.877 L 9.140,5.948 L 6.016,8.955 Z";
+
+    private static Path NavigationIcon(int page, string color)
     {
+        if (page == PluginsPageNumber)
+            return new Path
+            {
+                Data = Geometry.Parse(PluginsGlyph), Fill = UI.Brush(color), Width = 16, Height = 16,
+                Stretch = Stretch.None,
+                VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center
+            };
+        return Stroke(page switch
+        {
         0 => "M 1,4 H 15 M 1,12 H 15 M 5,1 V 7 M 11,9 V 15",
         1 => "M 1,3 H 15 V 13 H 1 Z M 5,3 V 6 H 11 V 3",
         2 => "M 1,6 V 1 H 6 M 10,1 H 15 V 6 M 15,10 V 15 H 10 M 6,15 H 1 V 10",
@@ -369,10 +384,12 @@ public sealed partial class SettingsWindow : Window
         4 => "M 1,2 H 15 V 14 H 1 Z M 1,6 H 15 M 1,10 H 15 M 6,2 V 14",
         6 => "M 1,2 H 15 V 14 H 1 Z M 6.5,5.5 L 11,8 L 6.5,10.5 Z",
         MonitorSettingsPage => "M 1,9 H 4 L 6,4 L 9,13 L 11,7 L 12,9 H 15",
+        PluginsPageNumber => "M 2.5,5.8 A 1.3,1.3 0 0 1 3.8,4.5 H 4.5 A 2.5,2.5 0 1 1 9.5,4.5 H 10.2 A 1.3,1.3 0 0 1 11.5,5.8 V 6.5 A 2.5,2.5 0 1 1 11.5,11.5 V 12.2 A 1.3,1.3 0 0 1 10.2,13.5 H 3.8 A 1.3,1.3 0 0 1 2.5,12.2 Z",
         ThemePage => "M 8,1 C 4,1 1,4 1,8 C 1,12 4,15 8,15 C 9.4,15 9.6,13.6 8.8,12.8 C 8,12 8.6,10.5 10,10.5 H 12 C 13.7,10.5 15,9.2 15,7.5 C 15,4 12,1 8,1 Z M 4.6,8 V 8.1 M 6,4.8 V 4.9 M 9.6,4.4 V 4.5 M 12,6.8 V 6.9",
         5 => "M 6,12.5 V 3 L 14,1.5 V 11 M 6,12.5 A 2,2 0 1 1 2,12.5 A 2,2 0 1 1 6,12.5 M 14,11 A 2,2 0 1 1 10,11 A 2,2 0 1 1 14,11",
         _ => "M 8,1 A 7,7 0 1 1 7.99,1 M 8,7 V 12 M 8,4 V 4.2"
     },16,16,color);
+    }
     private void General()
     {
         SectionTitle(Loc.T("启动与资源占用", "Startup and resources")); Group(Toggle(Loc.T("开机自启动", "Start with Windows"),S.LaunchAtStartup,value =>

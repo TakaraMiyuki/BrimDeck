@@ -81,7 +81,15 @@ public static class ClockColors
     public static bool Glows(ClockStyle style, bool highContrast) => !highContrast && style is ClockStyle.Neon or ClockStyle.Segment;
 }
 
-// A dashboard column has an identity independent of either data source.
+// One plugin slot's own page settings: whether its tab is on the island and the page's size. The id is the plugin's;
+// an entry whose plugin is gone is kept, so a return restores the page as it was. The slot is where the scan last put
+// that plugin. -1 is "never placed", which is what a file written before this, or a folder not loaded yet, reads as.
+public sealed record ExtensionPageSettings(string Id = "", bool Shown = true, double Width = 440, double Height = 160, int Slot = -1);
+
+// One plugin's face, remembered from its last successful load. The plugins page shows a file's name and glyph even
+// while the file is not loaded (disabled, failed, taken away), so its row keeps telling the reader which plugin it is.
+public sealed record PluginInfo(string File = "", string Id = "", string TitleZh = "", string TitleEn = "", string Glyph = "");
+
 public sealed class AppEntry
 {
     private ProviderId? _usageSource;
@@ -406,6 +414,24 @@ public sealed class DeckSettings
     public List<CompactPart> CapsuleOrder { get => _capsuleOrder; set => _capsuleOrder = CompactParts.Normalize(value); }
     // The order of the pages in the open panel's page switch, left to right.
     public List<DeckPage> PageOrder { get => _pageOrder; set => _pageOrder = DeckPages.Normalize(value); }
+    // One entry per plugin slot: whether its tab is shown and the page's size, keyed by the plugin's id.
+    // Read by the page integration of a later stage; stage 1 only loads and lists plugins.
+    public List<ExtensionPageSettings> Extensions { get; set; } = [];
+    // The plugin system's master switch: off loads no plugin at all, and the plugins page shows the switch alone.
+    // On by default; a build that turns it off is the safe mode's doing.
+    public bool EnablePlugins { get; set; } = true;
+    // Plugins the user turned off, by their DLL file name. A disabled DLL is not loaded at all, so its id is unknown
+    // here; the file name is the stable thing the plugins page's toggle is written against.
+    public List<string> PluginsDisabledFiles { get; set; } = [];
+    // The plugins' order, by DLL file name, as the plugins page's drag handle arranges it. Files not listed come after,
+    // alphabetically; the page list and, once pages exist, the page slots follow it.
+    public List<string> PluginsOrder { get; set; } = [];
+    // Each plugin's face from its last successful load, by file name; see PluginInfo.
+    public List<PluginInfo> PluginsKnown { get; set; } = [];
+    // Files whose first enable has been answered; the install warning shows once per file.
+    public List<string> PluginsWarnedFiles { get; set; } = [];
+    // Consecutive startups that failed inside the plugin loader. Two in a row ask for the safe mode; a clean load zeroes it.
+    public int PluginsStartupFailures { get; set; }
     // Whether the notch and the capsule widen to their content (CollapsedGeometry.Resolve). Resizing one by dragging an end turns
     // its own off, so the width set by hand stays.
     public bool NotchAutoWidth { get; set; } = true;
@@ -634,6 +660,12 @@ public sealed class DeckSettings
         DisplayMonitors = (DisplayMonitors ?? []).OfType<ChosenDisplay>().Where(d => !string.IsNullOrWhiteSpace(d.Id))
             .Select(d => new ChosenDisplay(d.Id.Trim(), (d.Name ?? "").Trim())).DistinctBy(d => d.Id).ToList();
         if (Display == DisplayPlacement.Chosen && DisplayMonitors.Count == 0) Display = DisplayPlacement.Primary;
+        PluginsOrder = (PluginsOrder ?? []).Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        PluginsDisabledFiles = (PluginsDisabledFiles ?? []).Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        PluginsKnown = (PluginsKnown ?? []).OfType<PluginInfo>().Where(info => !string.IsNullOrWhiteSpace(info.File))
+            .DistinctBy(info => info.File, StringComparer.OrdinalIgnoreCase).Take(64).ToList();
     }
 }
 
