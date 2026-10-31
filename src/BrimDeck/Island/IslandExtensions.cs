@@ -398,6 +398,10 @@ internal static class IslandExtensions
         catch (Exception) { }
     }
 
+    // Whether the collapsed row had less room than the widgets asked for, so one or more were shrunk or left out
+    // (the fixed-width yielding of stage 3b). The plugins page says so while it stands.
+    public static bool CompactTruncated { get; set; }
+
     public static string Title(int slot)
     {
         if (slot < 0 || slot >= 4 || Slots[slot] is not { } plugin) return "";

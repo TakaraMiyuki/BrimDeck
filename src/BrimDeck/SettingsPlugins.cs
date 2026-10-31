@@ -71,6 +71,13 @@ public sealed partial class SettingsWindow
         foreach (var file in files) list.Children.Add(PluginRow(file, list));
         Group(list);
         UpdateDividers(list);
+        // The collapsed row had less room than the widgets asked: the reader can widen it or turn auto-width back on.
+        if (IslandExtensions.CompactTruncated)
+        {
+            var crowded = Wrapped(Loc.T("收起行宽度不足，部分部件未完整显示；可加宽收起行或开启自动宽度。", "The collapsed row is too narrow for every widget; widen it or turn auto-width back on."), false);
+            crowded.Margin = new Thickness(0, 6, 0, 8);
+            _content.Children.Add(crowded);
+        }
     }
 
     // Every DLL in the plugins folder, the reader's order first and the rest alphabetically — the same order the scan

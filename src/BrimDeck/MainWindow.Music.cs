@@ -922,11 +922,12 @@ public partial class MainWindow
         _stripLayout = _stripAdmission.Layout;
         // Readings that do not fit scroll through a window of whole readings, as the rings do (CompactSpacing.Window).
         var layout = CompactMusicLayout.Calculate(contentWidth, scale, media, apps.Count, text.Length > 0, clock?.ReservedWidth ?? 0, strip?.PreferredWidth ?? 0, equalizer, Settings.EqualizerBars); CurrentCompactLayout = layout;
-        // The plugin widgets stand after the built-in parts while the collapsed style is the capsule (stage 3a); each asks
-        // for its width at the row's height and the row's pool answers — the built-in windows yield before a widget is cut.
+        // The plugin widgets stand after the built-in parts while the collapsed row is the capsule or the notch (the
+        // indicator is too thin for any of them); each asks for its width at the row's height and the row's pool
+        // answers — the built-in windows yield before a widget is cut.
         double pluginRow = CompactMusicLayout.Whole(26 * scale);
         var pluginParts = new List<(IslandExtensions.Plugin Plugin, IIslandCompact Compact, double Width)>();
-        if (EffectiveStyle == CompactStyle.Capsule)
+        if (EffectiveStyle is CompactStyle.Capsule or CompactStyle.Notch)
             foreach (var (plugin, compact) in IslandExtensions.Compacts())
             {
                 var view = EnsureCompactView(plugin, compact);
@@ -1000,7 +1001,22 @@ public partial class MainWindow
             else if (part == CompactPart.Equalizer && hasEqualizer) shown.Add((part, new(layout.EqualizerSize)));
             else if (part == CompactPart.Clock && hasClock) shown.Add((part, new(clock!.ReservedWidth)));
         }
-        // The plugin widgets come last, in the plugins' order, at the widths the negotiation gave them.
+        // The plugin widgets come last, in the plugins' order. A surface whose width fits everything (auto-width, or a
+        // wide fixed one) gives each widget what it asked; a narrow fixed one makes the widgets yield in their own
+        // order to what the built-ins took, and a widget that had to shrink is noted on the plugins page (让位).
+        double widgetRoom = SnapDown(contentWidth, dpi)
+            - (others - pluginParts.Sum(part => part.Width))   // the built-in parts and the gaps between them
+            - titleShare - rings.Window - readings.Window
+            - Math.Max(0, parts - 1) * unit;                    // one gap between every two parts, plugins included
+        bool widgetTruncated = false;
+        for (int i = 0; i < pluginParts.Count; i++)
+        {
+            double give = Math.Clamp(widgetRoom, 0, pluginParts[i].Width);
+            if (give < pluginParts[i].Width - .5) widgetTruncated = true;
+            pluginParts[i] = (pluginParts[i].Plugin, pluginParts[i].Compact, give);
+            widgetRoom -= give;
+        }
+        IslandExtensions.CompactTruncated = widgetTruncated;
         foreach (var part in pluginParts) shown.Add(((object)part.Compact, new CompactSpacing.Part(part.Width)));
         int title = shown.FindIndex(entry => entry.Part is CompactPart.Music);
         // One gap between every two parts; what is left widens them evenly and then centres the row.
