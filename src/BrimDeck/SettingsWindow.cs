@@ -29,10 +29,12 @@ public sealed partial class SettingsWindow : Window
     private readonly TextBlock _status = new() { Visibility = Visibility.Collapsed, TextWrapping = TextWrapping.Wrap };
     private ScrollViewer _scroll = null!;
     private static string[] _pages => [Loc.T("常规", "General"), Loc.T("收起外观", "Collapsed view"), Loc.T("展开外观", "Expanded view"),
-        Loc.T("配额与统计", "Quotas and usage"), Loc.T("模型价格", "Model prices"), Loc.T("样式", "Style"), Loc.T("播放器", "Players"), Loc.T("关于 BrimDeck", "About BrimDeck"), Loc.T("面板主题", "Panel theme"), Loc.T("显示与读数", "Display and readings")];
+        Loc.T("配额与统计", "Quotas and usage"), Loc.T("模型价格", "Model prices"), Loc.T("样式", "Style"), Loc.T("播放器", "Players"), Loc.T("关于 BrimDeck", "About BrimDeck"), Loc.T("面板主题", "Panel theme"), Loc.T("显示与读数", "Display and readings"), Loc.T("插件", "Plugins")];
     // The order of the pages in the navigation; the theme page (ThemePage) is listed with the appearance pages, and the system
     // monitor's page (MonitorSettingsPage) has its own group after music, before About.
-    private static readonly int[] PageOrder = [0, 1, 2, ThemePage, 3, 4, 5, 6, MonitorSettingsPage, 7];
+    private static readonly int[] PageOrder = [0, 1, 2, ThemePage, 3, 4, 5, 6, MonitorSettingsPage, 7, PluginsPageNumber];
+    // The plugins page: its own group after the system monitor, before About.
+    private const int PluginsPageNumber = 10;
     private int _page;
     private bool _preview;
     private StackPanel? _appRows;
@@ -330,9 +332,9 @@ public sealed partial class SettingsWindow : Window
         _page = page; _navigation.Children.Clear(); _content.Children.Clear(); _aboutUpdateView = null; _scroll.ScrollToTop();
         foreach (int i in PageOrder)
         {
-            if (i is 0 or 3 or 5 or 7 or MonitorSettingsPage)
+            if (i is 0 or 3 or 5 or 7 or MonitorSettingsPage or PluginsPageNumber)
             {
-                var group = TextLine(i switch { 0 => Loc.T("基础设置", "Basics"), 3 => Loc.T("AI 用量", "AI usage"), MonitorSettingsPage => Loc.T("系统监控", "System monitor"), 5 => Loc.T("音乐", "Music"), _ => Loc.T("关于", "About") },10.5,TextTertiary);
+                var group = TextLine(i switch { 0 => Loc.T("基础设置", "Basics"), 3 => Loc.T("AI 用量", "AI usage"), MonitorSettingsPage => Loc.T("系统监控", "System monitor"), 5 => Loc.T("音乐", "Music"), PluginsPageNumber => Loc.T("插件", "Plugins"), _ => Loc.T("关于", "About") },10.5,TextTertiary);
                 group.Margin = new Thickness(12, i == 0 ? 0 : 24, 0, 8); _navigation.Children.Add(group);
             }
             int target=i; bool selected=page==i;
@@ -352,7 +354,7 @@ public sealed partial class SettingsWindow : Window
             var reset=ActionButton(Loc.T("恢复默认", "Restore defaults"),ResetPage); reset.FontSize=11; DockPanel.SetDock(reset,Dock.Right); head.Children.Add(reset);
         }
         head.Children.Add(page == 7 ? Wordmark(28) : TextLine(_pages[page],24,TextPrimary,FontWeights.SemiBold)); _content.Children.Add(head);
-        switch(page) { case 0: General(); break; case 1: Compact(); break; case 2: Expanded(); break; case 3: Pages(); break; case 4: ModelPrices(); break; case 5: MusicStyle(); break; case 6: Players(); break; case 7: About(); break; case ThemePage: ThemesPage(); break; case MonitorSettingsPage: MonitorSettings(); break; }
+        switch(page) { case 0: General(); break; case 1: Compact(); break; case 2: Expanded(); break; case 3: Pages(); break; case 4: ModelPrices(); break; case 5: MusicStyle(); break; case 6: Players(); break; case 7: About(); break; case ThemePage: ThemesPage(); break; case MonitorSettingsPage: MonitorSettings(); break; case PluginsPageNumber: PluginsPage(); break; }
         if (_content.Children[^1] is Border lastGroup) lastGroup.Margin = new Thickness(lastGroup.Margin.Left, lastGroup.Margin.Top, lastGroup.Margin.Right, 0);
         // Apply the offset before the frame is drawn, so the rebuilt page never shows its top for a frame.
         if (keep > 0) { _scroll.UpdateLayout(); _scroll.ScrollToVerticalOffset(keep); _scroll.UpdateLayout(); }
