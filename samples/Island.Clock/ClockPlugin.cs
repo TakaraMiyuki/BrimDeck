@@ -87,7 +87,7 @@ internal sealed class ClockPage : IIslandPage
 // The capsule's widget: the time small in the collapsed row, ticking once a second while the island sits there.
 internal sealed class ClockCompact : IIslandCompact
 {
-    private readonly TextBlock _text = new() { FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _text = new() { FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.NoWrap };
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
 
     public string Id => "clock";

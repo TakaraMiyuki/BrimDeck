@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using BrimDeck.Core;
+using BrimDeck.Island;
 
 namespace BrimDeck;
 
@@ -80,6 +81,11 @@ public partial class MainWindow
             _extensionViewOwners.Remove(slot);
         }
         EnsureExtensionPagesOrdered();
+        // Compact views of plugins that went away are retired; a collapsed panel rebuilds its row so a new widget shows.
+        var live = IslandExtensions.Compacts().Select(entry => entry.Compact).ToHashSet();
+        foreach (var compact in _compactViews.Keys.ToList())
+            if (!live.Contains(compact)) _compactViews.Remove(compact);
+        if (!_expanded) RenderCompact();
         if (DeckPages.IsExtensionPage(CurrentPage) && !DeckPages.Shown(Settings, CurrentPage))
         {
             var fallback = DeckPages.Visible(Settings) is [var first, ..] ? first : DeckPage.Usage;
@@ -165,6 +171,32 @@ public partial class MainWindow
     internal void HideExtensionHosts()
     {
         foreach (var pair in _extensionHosts) pair.Value.Visibility = Visibility.Collapsed;
+    }
+
+    // The collapsed row's plugin widgets: one view per plugin instance, created once and kept across row rebuilds (the
+    // row is rebuilt whole on every shape, so the view is detached from the row it left and re-anchored to the new one).
+    private readonly Dictionary<IIslandCompact, FrameworkElement> _compactViews = [];
+
+    // Creates the widget's view for a plugin, once: CreateView on the UI thread with the current palette, wrapped so the
+    // widget centres in the row; a plugin that fails gets nothing (the row goes on without it) and the log says why.
+    private FrameworkElement? EnsureCompactView(IslandExtensions.Plugin plugin, IIslandCompact compact)
+    {
+        if (_compactViews.TryGetValue(compact, out var kept)) return kept;
+        FrameworkElement view;
+        try
+        {
+            view = compact.CreateView(IslandExtensions.Colors) ?? new Grid();
+            ExtensionLog.Write($"plugin {plugin.Id}: compact view created");
+        }
+        catch (Exception ex)
+        {
+            ExtensionLog.Write($"plugin {plugin.Id}: compact CreateView failed: {ex.Message.Split('\n')[0]}");
+            return null;
+        }
+        var wrapper = new Grid();
+        wrapper.Children.Add(view);
+        _compactViews[compact] = wrapper;
+        return wrapper;
     }
 
     // Shows the open plugin page alone: the built-in contents, the model toolbar and the application tabs hide, the

@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using BrimDeck.Core;
+using BrimDeck.Island;
 using BrimDeck.Native;
 using MediaState = BrimDeck.Core.MediaState;
 
@@ -921,16 +922,30 @@ public partial class MainWindow
         _stripLayout = _stripAdmission.Layout;
         // Readings that do not fit scroll through a window of whole readings, as the rings do (CompactSpacing.Window).
         var layout = CompactMusicLayout.Calculate(contentWidth, scale, media, apps.Count, text.Length > 0, clock?.ReservedWidth ?? 0, strip?.PreferredWidth ?? 0, equalizer, Settings.EqualizerBars); CurrentCompactLayout = layout;
+        // The plugin widgets stand after the built-in parts while the collapsed style is the capsule (stage 3a); each asks
+        // for its width at the row's height and the row's pool answers — the built-in windows yield before a widget is cut.
+        double pluginRow = CompactMusicLayout.Whole(26 * scale);
+        var pluginParts = new List<(IslandExtensions.Plugin Plugin, IIslandCompact Compact, double Width)>();
+        if (EffectiveStyle == CompactStyle.Capsule)
+            foreach (var (plugin, compact) in IslandExtensions.Compacts())
+            {
+                var view = EnsureCompactView(plugin, compact);
+                if (view is null) continue;
+                double width = 0;
+                try { width = Math.Min(compact.DesiredWidth(pluginRow), contentWidth / 2); } catch (Exception) { }
+                if (width > 0) pluginParts.Add((plugin, compact, width));
+            }
+        double pluginRoom = pluginParts.Sum(part => part.Width) + (pluginParts.Count > 0 ? pluginParts.Count * CompactMusicLayout.Gap(scale) : 0);
         // An auto-width surface takes the width of what the row shows; the new shape builds the row again. The track notice
         // and the lyric's changing length are left out, so the width changes only when the content itself does.
         int steadyRings = Settings.ShowsSummary(EffectiveStyle) ? Settings.EnabledApps.Count : 0;
         bool steadyText = media && Settings.MusicText != CompactMusicText.None;
-        double wanted = CompactMusicLayout.NaturalWidth(scale, media, steadyRings, steadyText, clock?.ReservedWidth ?? 0, strip?.PreferredWidth ?? 0, dpi, equalizer, Settings.EqualizerBars);
+        double wanted = CompactMusicLayout.NaturalWidth(scale, media, steadyRings, steadyText, clock?.ReservedWidth ?? 0, strip?.PreferredWidth ?? 0, dpi, equalizer, Settings.EqualizerBars) + pluginRoom;
         // The surface is never narrower than what the row must show (CompactMusicLayout.RequiredWidth); like the width it asks
         // for, this leaves out the track notice, so the surface does not move for it.
         var readingWidths = strip?.ItemWidths() ?? [];
         double required = CompactMusicLayout.RequiredWidth(scale, media, steadyText, clock?.ReservedWidth ?? 0,
-            steadyRings > 0 ? Math.Max(1, CompactMusicLayout.Whole(12 * scale)) : 0, CompactSpacing.Minimum(readingWidths, strip?.Gap ?? 0), equalizer, Settings.EqualizerBars);
+            steadyRings > 0 ? Math.Max(1, CompactMusicLayout.Whole(12 * scale)) : 0, CompactSpacing.Minimum(readingWidths, strip?.Gap ?? 0), equalizer, Settings.EqualizerBars) + pluginRoom;
         if (double.IsNaN(_compactWanted) || Math.Abs(wanted - _compactWanted) > .5 || Math.Abs(required - _compactRequired) > .5)
         { _compactWanted = wanted; _compactRequired = required; Dispatcher.BeginInvoke(DispatcherPriority.Background, FitCompactToContent); }
         double row = layout.RowHeight, unit = CompactMusicLayout.Gap(scale);
@@ -949,8 +964,9 @@ public partial class MainWindow
         double titleFloor = hasText ? Math.Min(shortest, titleWanted) : 0;
         var ringWidths = apps.Select(_ => layout.RingSize).ToList();
         bool hasRings = ringWidths.Count > 0, hasReadings = readingWidths.Count > 0;
-        int parts = (hasCover ? 1 : 0) + (hasEqualizer ? 1 : 0) + (hasClock ? 1 : 0) + (hasText ? 1 : 0) + (hasRings ? 1 : 0) + (hasReadings ? 1 : 0);
-        double others = (hasCover ? layout.CoverSize : 0) + (hasEqualizer ? layout.EqualizerSize : 0) + (hasClock ? clock!.ReservedWidth : 0) + Math.Max(0, parts - 1) * unit;
+        int parts = (hasCover ? 1 : 0) + (hasEqualizer ? 1 : 0) + (hasClock ? 1 : 0) + (hasText ? 1 : 0) + (hasRings ? 1 : 0) + (hasReadings ? 1 : 0) + pluginParts.Count;
+        double others = (hasCover ? layout.CoverSize : 0) + (hasEqualizer ? layout.EqualizerSize : 0) + (hasClock ? clock!.ReservedWidth : 0)
+            + pluginParts.Sum(part => part.Width) + Math.Max(0, parts - 1) * unit;
         double pool = SnapDown(contentWidth, dpi) - others - titleShare;
         // Too short for both narrowest windows, the title gives way down to its shortest.
         double needed = CompactSpacing.Minimum(ringWidths, layout.RingGap) + CompactSpacing.Minimum(readingWidths, strip?.Gap ?? 0);
@@ -984,6 +1000,8 @@ public partial class MainWindow
             else if (part == CompactPart.Equalizer && hasEqualizer) shown.Add((part, new(layout.EqualizerSize)));
             else if (part == CompactPart.Clock && hasClock) shown.Add((part, new(clock!.ReservedWidth)));
         }
+        // The plugin widgets come last, in the plugins' order, at the widths the negotiation gave them.
+        foreach (var part in pluginParts) shown.Add(((object)part.Compact, new CompactSpacing.Part(part.Width)));
         int title = shown.FindIndex(entry => entry.Part is CompactPart.Music);
         // One gap between every two parts; what is left widens them evenly and then centres the row.
         var place = CompactSpacing.Arrange([.. shown.Select(entry => entry.Size)], title, titleWanted, shortest, grid.Width, unit, scale, dpi);
@@ -1007,6 +1025,15 @@ public partial class MainWindow
                         flow > 0 ? rings.Window : null, ringCut); break;
                 case CompactPart.Music:
                     element = _compactMarquee = CompactTitle(text, room, layout); break;
+                case IIslandCompact compact:
+                    // The view is kept per plugin instance and detached from the row it left, since the row is rebuilt
+                    // whole on every shape; the widget keeps its state the while.
+                    double widgetWidth = pluginParts.First(part => part.Compact == compact).Width;
+                    var pluginView = _compactViews.TryGetValue(compact, out var kept) ? kept : new Grid();
+                    pluginView.Width = widgetWidth;
+                    if (pluginView.Parent is Panel former) former.Children.Remove(pluginView);
+                    element = CompactRegion(pluginView, room, widgetWidth, row, row, RegionAnchor.Left, dpi);
+                    break;
                 default:
                     // The readings that fit stand still; more scroll through the window. Either way they need sampling.
                     strip!.Margin = new Thickness(0); _compactStrip = strip;
