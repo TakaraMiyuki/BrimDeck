@@ -101,6 +101,9 @@ public interface IIslandCompact
     // The width the widget needs at this row height, in DIPs. Called on every layout; return a stable number for an
     // unchanged content, or the widget flickers as the row breathes.
     double DesiredWidth(double availableHeight);
+    // Whether this widget should sit in the collapsed row at all. Some pages do not suit a thumbnail; a plugin that
+    // says no keeps its widget to itself — the host never creates its view. True unless the plugin says otherwise.
+    bool ShowsInCompact => true;
     // The palette changed: recolor in place.
     void OnColorsChanged(IslandColors colors) { }
 }

@@ -1003,7 +1003,8 @@ public partial class MainWindow
         }
         // The plugin widgets come last, in the plugins' order. A surface whose width fits everything (auto-width, or a
         // wide fixed one) gives each widget what it asked; a narrow fixed one makes the widgets yield in their own
-        // order to what the built-ins took, and a widget that had to shrink is noted on the plugins page (让位).
+        // order — and a widget that would not fit WHOLE is left out entirely rather than shown cut (the reader asked
+        // for the built-ins' size). A widget that had to yield is noted on the plugins page.
         double widgetRoom = SnapDown(contentWidth, dpi)
             - (others - pluginParts.Sum(part => part.Width))   // the built-in parts and the gaps between them
             - titleShare - rings.Window - readings.Window
@@ -1011,13 +1012,12 @@ public partial class MainWindow
         bool widgetTruncated = false;
         for (int i = 0; i < pluginParts.Count; i++)
         {
-            double give = Math.Clamp(widgetRoom, 0, pluginParts[i].Width);
-            if (give < pluginParts[i].Width - .5) widgetTruncated = true;
-            pluginParts[i] = (pluginParts[i].Plugin, pluginParts[i].Compact, give);
-            widgetRoom -= give;
+            if (pluginParts[i].Width > widgetRoom) widgetTruncated = true;
+            pluginParts[i] = (pluginParts[i].Plugin, pluginParts[i].Compact, pluginParts[i].Width > widgetRoom ? 0 : pluginParts[i].Width);
+            widgetRoom -= pluginParts[i].Width;
         }
         IslandExtensions.CompactTruncated = widgetTruncated;
-        foreach (var part in pluginParts) shown.Add(((object)part.Compact, new CompactSpacing.Part(part.Width)));
+        foreach (var part in pluginParts.Where(part => part.Width > 0)) shown.Add(((object)part.Compact, new CompactSpacing.Part(part.Width)));
         int title = shown.FindIndex(entry => entry.Part is CompactPart.Music);
         // One gap between every two parts; what is left widens them evenly and then centres the row.
         var place = CompactSpacing.Arrange([.. shown.Select(entry => entry.Size)], title, titleWanted, shortest, grid.Width, unit, scale, dpi);

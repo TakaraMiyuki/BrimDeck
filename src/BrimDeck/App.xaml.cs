@@ -231,11 +231,10 @@ public partial class App : Application
         bool styleChanged = settings.Style != Settings.Style;
         settings.Normalize(); Settings = settings;
         ApplyHotkeys();
-        // The palette and the plugin gates live with the settings instance: keep the loader current and the live
-        // views recolored when the theme or the monitor palette changed. The master switch applies at once: off
-        // unloads every plugin mid-run, on loads them (a no-op when they are already in).
+        // The palette and the plugin gates live with the settings instance: keep the loader current. The palette itself
+        // is handed to the plugins AFTER the theme is applied below — SetPalette reads the theme's colors, and handing
+        // it early gave the plugins the previous theme's palette (they lagged a theme behind).
         IslandExtensions.SetSettings(settings);
-        IslandExtensions.SetPalette(settings);
         if (!settings.EnablePlugins) IslandExtensions.UnloadAll();
         else if (IslandExtensions.Plugins.Count == 0 && IslandExtensions.Failures.Count == 0 && IslandExtensions.Skipped.Count == 0)
             IslandExtensions.Load(settings);
@@ -245,6 +244,9 @@ public partial class App : Application
         bool languageChanged = Loc.Normalize(settings.Language) != Loc.Language;
         if (languageChanged) UseLanguage();
         PanelTheme.Use(settings);
+        // The theme is on: hand the plugins the palette of THIS theme, then let the panels apply (their rows rebuild
+        // with the widgets reading the new palette through OnColorsChanged).
+        IslandExtensions.SetPalette(settings);
         ScheduleDaylight();
         AssignDisplays();
         foreach (var deck in Decks.ToList()) { if (styleChanged) deck.MorphShape(); else deck.ApplySettings(); }
@@ -280,6 +282,9 @@ public partial class App : Application
         bool wasHigh = PanelTheme.HighContrast;
         bool changed = PanelTheme.Use(Settings, reload, systemChanged);
         ScheduleDaylight();
+        // The theme changed on its own (system, high contrast, daylight): hand the plugins the fresh palette before
+        // the panels re-apply, or they would keep the previous theme's colors until the next settings change.
+        if (changed) IslandExtensions.SetPalette(Settings);
         if (!changed) return;
         // Into or out of high contrast the theme itself has not changed, so the clock's gradient stays as the user left it.
         if (systemChanged && !wasHigh && !PanelTheme.HighContrast && PanelThemes.CarryGradient(previous, PanelTheme.Current, Settings)) QueueSave();

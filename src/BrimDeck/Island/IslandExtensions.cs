@@ -416,7 +416,13 @@ internal static class IslandExtensions
         var list = new List<(Plugin, IIslandCompact)>();
         foreach (var plugin in Plugins)
             foreach (var compact in plugin.Host.Compacts)
+            {
+                // The plugin decides whether its widget sits in the collapsed row at all; a plugin that throws while
+                // answering keeps its widget to itself, as one that said no would.
+                try { if (!compact.ShowsInCompact) continue; }
+                catch (Exception) { continue; }
                 list.Add((plugin, compact));
+            }
         return list;
     }
 
