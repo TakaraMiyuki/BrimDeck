@@ -36,19 +36,10 @@ public sealed partial class SettingsWindow : IIslandControls
         => Toggle(title, isOn, changed);
 
     // The settings window's own numeric control: the slider, the box to type into and the step buttons (Dimension).
+    // One line, as the settings window's own slider rows stand: the title at the left, the slider across the row and the
+    // number box with its step buttons at the right (SliderRow).
     FrameworkElement IIslandControls.Number(string title, double value, double min, double max, Action<double> changed, double step, string unit)
-    {
-        var panel = new StackPanel();
-        var controls = NumericControls(title, value, min, max, step, unit, changed);
-        KeepPreview(controls.Slider); KeepPreview(controls.Number);
-        var head = new DockPanel(); DockPanel.SetDock(controls.Number, Dock.Right); head.Children.Add(controls.Number);
-        var label = TextLine(title, 13, TextPrimary); label.VerticalAlignment = VerticalAlignment.Center; head.Children.Add(label); panel.Children.Add(head);
-        controls.Slider.Margin = new Thickness(0, 24, 0, 6); panel.Children.Add(controls.Slider);
-        var scale = new DockPanel();
-        var last = TextLine(max.ToString("0"), 10, TextTertiary); DockPanel.SetDock(last, Dock.Right); scale.Children.Add(last);
-        scale.Children.Add(TextLine(min.ToString("0"), 10, TextTertiary)); panel.Children.Add(scale);
-        return panel;
-    }
+        => SliderRow(title, value, min, max, step, unit, changed);
 
     FrameworkElement IIslandControls.Slider(string title, double value, double min, double max, Action<double> changed)
     {
