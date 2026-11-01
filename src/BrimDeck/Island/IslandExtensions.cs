@@ -118,9 +118,16 @@ internal static class IslandExtensions
     public static void EnsureCompactKeys(DeckSettings settings)
     {
         bool changed = false;
-        foreach (var (plugin, compact) in Compacts())
+        var live = Compacts().Select(entry => "plugin:" + entry.Plugin.Id).ToHashSet(StringComparer.Ordinal);
+        // Keys of plugins that are gone (removed, or an id that changed) leave the orders: a stale key would keep its
+        // slot in the editor and hold a gap in the row.
+        foreach (var order in new[] { settings.NotchOrder, settings.CapsuleOrder })
         {
-            var key = "plugin:" + plugin.Id;
+            int removed = order.RemoveAll(name => name.StartsWith("plugin:", StringComparison.Ordinal) && !live.Contains(name));
+            if (removed > 0) changed = true;
+        }
+        foreach (var key in live)
+        {
             if (!settings.NotchOrder.Contains(key)) { settings.NotchOrder = [.. settings.NotchOrder, key]; changed = true; }
             if (!settings.CapsuleOrder.Contains(key)) { settings.CapsuleOrder = [.. settings.CapsuleOrder, key]; changed = true; }
         }

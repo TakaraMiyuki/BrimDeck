@@ -6,8 +6,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <RootNamespace>BrimDeck.Island.Clock</RootNamespace>
-    <AssemblyName>Island.Clock</AssemblyName>
+    <RootNamespace>BrimDeck.Island.Pomodoro</RootNamespace>
+    <AssemblyName>Island.Pomodoro</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

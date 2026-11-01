@@ -46,6 +46,8 @@ public partial class MainWindow
         };
         IslandExtensions.ExtensionsChanged += ExtensionSlotsChanged;
         EnsureExtensionPagesOrdered();
+        // The startup scan ran before this window existed: prune stale widget keys and enter the loaded ones now.
+        EnsureCompactKeys();
     }
 
     private void EnsureCompactKeys() => IslandExtensions.EnsureCompactKeys(Settings);
