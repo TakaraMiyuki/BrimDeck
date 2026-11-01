@@ -46,7 +46,7 @@ public sealed partial class SettingsWindow
         // The action buttons and the search wrap when the window is narrow, so no button is ever cut.
         var actions = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 12) };
         actions.Children.Add(OutlineAction(Loc.T("安装插件", "Install plugin"),
-            "M 8,1 V 9 M 8,9 L 4.5,5.5 M 8,9 L 11.5,5.5 M 2,11.5 H 14", InstallPlugin,
+            "M 8,1.5 V 8.5 M 8,8.5 L 4.8,5.3 M 8,8.5 L 11.2,5.3 M 2.5,11 H 13.5 V 14 H 2.5 Z", InstallPlugin,
             Loc.T("选择插件的 DLL 文件，拷入插件文件夹并装入。", "Pick the plugin's DLL file; it is copied into the plugins folder and loaded.")));
         actions.Children.Add(OutlineAction(Loc.T("打开插件文件夹", "Open plugins folder"),
             "M 1.5,4.4 H 4.4 L 5.6,3 H 10.5 V 9.5 H 1.5 Z", OpenPluginsFolder,
@@ -58,7 +58,7 @@ public sealed partial class SettingsWindow
         reload.Margin = new Thickness(8, 4, 0, 0);
         actions.Children.Add(reload);
         var reset = OutlineAction(Loc.T("恢复默认", "Restore defaults"),
-            "M 8,2 A 6,6 0 1 0 13,5 M 13,1 V 5 H 9", ResetAllPlugins,
+            "M 12.6,4.2 A 5.4,5.4 0 1 0 13.4,8 M 12.6,1.6 V 4.4 H 9.8", ResetAllPlugins,
             Loc.T("把所有插件的开关、尺寸和设置还原为默认值。", "Resets every plugin's switches, sizes and settings to their defaults."));
         reset.Margin = new Thickness(8, 4, 0, 0);
         actions.Children.Add(reset);
@@ -253,12 +253,24 @@ public sealed partial class SettingsWindow
     }
 
     // An outline button with a small stroke glyph before its text, as the app rules' add button is.
+    // An outline button with its glyph. The glyph is fitted into its 13 DIP box (the paths are drawn on a wider
+    // grid), so a path never spills over the label; a path that does not parse draws nothing rather than breaking
+    // the row.
     private Button OutlineAction(string text, string glyph, Action action, string tip)
     {
         var button = new Button { Style = (Style)FindResource("SettingsOutlineButton"), ToolTip = tip };
         var content = new StackPanel { Orientation = Orientation.Horizontal };
-        content.Children.Add(Stroke(glyph, 12, 12, TextSecondary));
-        content.Children.Add(new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
+        System.Windows.Media.Geometry? data = null;
+        try { data = System.Windows.Media.Geometry.Parse(glyph); } catch (Exception) { }
+        if (data is not null)
+            content.Children.Add(new System.Windows.Shapes.Path
+            {
+                Data = data, Width = 13, Height = 13, Stretch = Stretch.Uniform, StrokeThickness = 1.35,
+                Stroke = UI.Brush(TextSecondary), VerticalAlignment = VerticalAlignment.Center,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+                Margin = new Thickness(0, 0, 6, 0)
+            });
+        content.Children.Add(new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center });
         button.Content = content;
         AutomationProperties.SetName(button, text);
         button.Click += (_, _) => action();

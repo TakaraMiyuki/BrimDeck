@@ -213,7 +213,8 @@ internal sealed class GaugeCard
         _value.Text = figure + _unit;
         _sub.Text = second;
         // The fill is the arc up to the reading's share, as a stroke dash of that length.
-        double span = Math.PI * (ArcWidth / 2 - 4);
+        // StrokeDashArray counts multiples of the stroke width, not pixels.
+        double span = Math.PI * (ArcWidth / 2 - 4) / 5;
         double share = _max > _min ? Math.Clamp((value - _min) / (_max - _min), 0, 1) : 0;
         _fill.StrokeDashArray = [span * share, span * 2];
         _fill.StrokeDashOffset = 0;
@@ -246,43 +247,103 @@ internal sealed class GaugeCard
     }
 }
 
-// The capsule's widget: the temperatures and the fan speed small and tight, as the system readings stand beside the
-// quota rings. Two lines: the temperatures, then the fan speed.
+// The capsule's widget, drawn as the system monitor's own reading: a ring filled to the CPU temperature's share with
+// the figure beside it, and the fan speed under that — the same shape the built-in readings take, so the cooler's
+// numbers sit beside the quota rings as one more reading rather than as a loose label.
 internal sealed class ThrmCompact : IIslandCompact
 {
-    private readonly TextBlock _text = new()
-    {
-        FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center,
-        TextWrapping = TextWrapping.NoWrap, LineHeight = 14
-    };
+    private readonly Grid _root = new();
+    private readonly Canvas _ring = new() { Width = RingSize, Height = RingSize, VerticalAlignment = VerticalAlignment.Center };
+    private readonly System.Windows.Shapes.Path _track;
+    private readonly System.Windows.Shapes.Path _fill;
+    private readonly TextBlock _temps = new() { FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _fan = new() { FontSize = 10, VerticalAlignment = VerticalAlignment.Center };
     private IslandColors _colors = new("#4FD17F", "#F0B54A", "#FF6B5E", "#F1F1F4", "#C5C5CB", "#8E8E93", "#2A2A30", "#1D1D21");
+
+    private const double RingSize = 18, RingThickness = 2.4;
+    private static readonly Geometry RingGeometry = Ring();
+
+    public ThrmCompact()
+    {
+        _track = new System.Windows.Shapes.Path { Data = RingGeometry, StrokeThickness = RingThickness, Stretch = Stretch.None };
+        _fill = new System.Windows.Shapes.Path { Data = RingGeometry, StrokeThickness = RingThickness, Stretch = Stretch.None };
+        _ring.Children.Add(_track); _ring.Children.Add(_fill);
+        // The reading: the ring, the temperatures beside it, and the fan speed under them, tight as one block.
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
+        text.Children.Add(_temps);
+        text.Children.Add(_fan);
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        row.Children.Add(_ring); row.Children.Add(text);
+        _root.Children.Add(row);
+    }
 
     public string Id => "temps";
     public FrameworkElement CreateView(IslandColors colors)
     {
         OnColorsChanged(colors);
-        return _text;
+        return _root;
     }
 
-    // "88° 88° / 8888" measured once: the width is steady, so the row does not breathe with the numbers.
+    // "88° 88°" and "8888 RPM" measured once, so the row does not breathe with the numbers.
     public double DesiredWidth(double availableHeight)
     {
-        var keep = _text.Text;
-        _text.Text = "88° 88°\n8888 RPM";
-        _text.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        var width = Math.Ceiling(_text.DesiredSize.Width);
-        _text.Text = keep;
-        return width + 10;
+        var keepTemps = _temps.Text; var keepFan = _fan.Text;
+        _temps.Text = "88° 88°"; _fan.Text = "8888 RPM";
+        _temps.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        _fan.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var textWidth = Math.Ceiling(Math.Max(_temps.DesiredSize.Width, _fan.DesiredSize.Width));
+        _temps.Text = keepTemps; _fan.Text = keepFan;
+        return RingSize + 6 + textWidth + 10;
     }
 
     public void OnColorsChanged(IslandColors colors)
     {
         _colors = colors;
-        _text.Foreground = ThrmPage.Brush(colors.Secondary);
+        _track.Stroke = ThrmPage.Brush(colors.Fill);
+        _temps.Foreground = ThrmPage.Brush(colors.Secondary);
+        _fan.Foreground = ThrmPage.Brush(colors.Tertiary);
+        Paint(stroke: true);
     }
 
     public void Update(ThrmSample? sample)
     {
-        _text.Text = sample is null ? "" : $"{sample.CpuTemp:0}° {sample.GpuTemp:0}°\n{sample.CpuFan:0} RPM";
+        _sample = sample;
+        Paint(stroke: false);
+    }
+
+    private ThrmSample? _sample;
+
+    // The ring fills to the CPU temperature's share of 100 degrees and takes the level's color; the figures stay in the
+    // palette's shades, as the system readings do.
+    private void Paint(bool stroke)
+    {
+        if (_sample is not { } sample)
+        {
+            _temps.Text = ""; _fan.Text = "";
+            _fill.StrokeDashArray = [0, 1];
+            return;
+        }
+        double share = Math.Clamp(sample.CpuTemp / 100, 0, 1);
+        // StrokeDashArray is in multiples of the stroke's width, not pixels: the circumference divided by it.
+        double span = Math.PI * 2 * (RingSize / 2 - RingThickness / 2) / RingThickness;
+        _fill.StrokeDashArray = [span * share, span * 2];
+        _fill.Stroke = ThrmPage.Brush(ThrmPage.LevelColor(_colors, sample.CpuTemp, 75, 88));
+        _temps.Text = $"{sample.CpuTemp:0}° {sample.GpuTemp:0}°";
+        _fan.Text = $"{sample.CpuFan:0} RPM";
+    }
+
+    // A full circle drawn from the top, round caps, so the fill grows clockwise from twelve o'clock.
+    private static Geometry Ring()
+    {
+        double r = RingSize / 2 - RingThickness / 2, c = RingSize / 2;
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(new Point(c, c - r), false, false);
+            ctx.ArcTo(new Point(c, c + r), new Size(r, r), 0, false, SweepDirection.Clockwise, true, false);
+            ctx.ArcTo(new Point(c, c - r), new Size(r, r), 0, false, SweepDirection.Clockwise, true, false);
+        }
+        geometry.Freeze();
+        return geometry;
     }
 }
