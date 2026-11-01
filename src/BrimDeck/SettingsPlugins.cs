@@ -258,18 +258,23 @@ public sealed partial class SettingsWindow
     // the row.
     private Button OutlineAction(string text, string glyph, Action action, string tip)
     {
-        var button = new Button { Style = (Style)FindResource("SettingsOutlineButton"), ToolTip = tip };
-        var content = new StackPanel { Orientation = Orientation.Horizontal };
+        var button = new Button { Style = (Style)FindResource("SettingsOutlineButton"), ToolTip = tip, Height = 30, Padding = new Thickness(11, 0, 11, 0), VerticalAlignment = VerticalAlignment.Center };
+        // The buttons stand the same size: the glyph always takes its 13 DIP box (a Viewbox scales the path into it
+        // whatever grid the path was drawn on), so no icon widens its button, and the text is the only variable width.
+        var content = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         System.Windows.Media.Geometry? data = null;
         try { data = System.Windows.Media.Geometry.Parse(glyph); } catch (Exception) { }
-        if (data is not null)
-            content.Children.Add(new System.Windows.Shapes.Path
+        content.Children.Add(new Viewbox
+        {
+            Width = 13, Height = 13, Stretch = Stretch.Uniform,
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0),
+            Child = new System.Windows.Shapes.Path
             {
-                Data = data, Width = 13, Height = 13, Stretch = Stretch.Uniform, StrokeThickness = 1.35,
-                Stroke = UI.Brush(TextSecondary), VerticalAlignment = VerticalAlignment.Center,
-                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
-                Margin = new Thickness(0, 0, 6, 0)
-            });
+                Data = data ?? System.Windows.Media.Geometry.Empty, StrokeThickness = 1.35,
+                Stroke = UI.Brush(TextSecondary),
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round
+            }
+        });
         content.Children.Add(new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center });
         button.Content = content;
         AutomationProperties.SetName(button, text);

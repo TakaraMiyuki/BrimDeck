@@ -11,10 +11,11 @@ using BrimDeck.Island;
 namespace BrimDeck.Island.Thrm;
 
 // The THRM cooler's read-out, in the shape of the cooler software's own monitor panel: a row of gauge cards (CPU
-// temperature, GPU temperature, fan speed) with an arc, the figure large in the middle and the second reading under
-// it. The collapsed capsule carries the temperatures and the fan speed small, beside the quota rings the island
-// already shows. The numbers come from the THRM bridge (thrm-bridge.py, the local HTTP service on 127.0.0.1:27391):
-// the plugin polls it every two seconds and writes into the views, so nothing is recreated while the user reads it.
+// temperature, GPU temperature, fan speed) with the card's mark and title, the figure large with its unit small and
+// an arc filled to the figure's share. The collapsed capsule carries three readings — CPU temperature, GPU temperature
+// and fan speed — as the system monitor's own readings do: a small ring with its initial inside, the figure beside it.
+// The numbers come from the THRM bridge (thrm-bridge.py, the local HTTP service on 127.0.0.1:27391): the plugin polls
+// it every two seconds and writes into the views, so nothing is recreated while the user reads it.
 public sealed class ThrmPlugin : IIslandExtension
 {
     private readonly ThrmPage _page = new();
@@ -84,23 +85,36 @@ internal static class ThrmBridge
         root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number) ? number : 0;
 }
 
-// The page, shaped as the cooler software's monitor panel: a row of cards, each an arc gauge with the figure large and
-// the second reading under it, and the bridge's state line below. The arcs fill with the reading and take the level's
-// color; the figures stay in the palette's primary.
+// The levels the cooler software colors its readings by: temperature healthy at 70 and below, warm above 70 up to 90,
+// hot above 90; fan speed in four bands at 1900, 2700 and 3500. The plugin owns these colors — they mean the same at
+// any panel theme — and the figures, arcs and rings all take them.
+internal static class ThrmLevels
+{
+    public const string Green = "#34C759", Blue = "#0A84FF", Purple = "#AF52DE", Orange = "#FF9F0A", Red = "#FF3B30";
+
+    public static string Temperature(double celsius) => celsius > 90 ? Red : celsius > 70 ? Orange : Green;
+
+    public static string Fan(double rpm) => rpm > 3500 ? Orange : rpm > 2700 ? Purple : rpm > 1900 ? Blue : Green;
+}
+
+// The page, shaped as the cooler software's monitor panel: a row of cards, each with its own mark and title, an arc
+// filled to the figure's share, the figure large with its unit small beside it, and a second line under it.
 internal sealed class ThrmPage : IIslandPage
 {
     private readonly GaugeCard _cpu;
     private readonly GaugeCard _gpu;
     private readonly GaugeCard _fan;
-    private readonly TextBlock _state = new() { FontSize = 11 };
-    private IslandColors _colors = new("#4FD17F", "#F0B54A", "#FF6B5E", "#F1F1F4", "#C5C5CB", "#8E8E93", "#2A2A30", "#1D1D21");
+    private readonly TextBlock _state = new() { FontSize = 10.5, HorizontalAlignment = HorizontalAlignment.Center };
+    private IslandColors _colors = Initial();
 
     public ThrmPage()
     {
-        _cpu = new GaugeCard("CPU 温度", "°C", 0, 100);
-        _gpu = new GaugeCard("GPU 温度", "°C", 0, 100);
-        _fan = new GaugeCard("风扇转速", "RPM", 0, 4000);
+        _cpu = new GaugeCard("CPU 温度", "°C", 0, 100, Icons.Cpu);
+        _gpu = new GaugeCard("GPU 温度", "°C", 0, 100, Icons.Gpu);
+        _fan = new GaugeCard("风扇转速", "RPM", 0, 5000, Icons.Fan);
     }
+
+    private static IslandColors Initial() => new("#4FD17F", "#F0B54A", "#FF6B5E", "#F1F1F4", "#C5C5CB", "#8E8E93", "#2A2A30", "#1D1D21");
 
     public string Id => "cooler";
     public string TitleZh => "散热器";
@@ -115,13 +129,13 @@ internal sealed class ThrmPage : IIslandPage
     public FrameworkElement CreateView(IslandColors colors)
     {
         Recolor(colors);
-        var cards = new UniformGrid { Rows = 1, Columns = 3, Margin = new Thickness(12, 6, 12, 0) };
+        var cards = new UniformGrid { Rows = 1, Columns = 3, Margin = new Thickness(14, 8, 14, 0) };
         cards.Children.Add(_cpu.Root);
         cards.Children.Add(_gpu.Root);
         cards.Children.Add(_fan.Root);
         var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         stack.Children.Add(cards);
-        _state.Margin = new Thickness(20, 8, 20, 0);
+        _state.Margin = new Thickness(0, 10, 0, 0);
         stack.Children.Add(_state);
         return stack;
     }
@@ -132,72 +146,104 @@ internal sealed class ThrmPage : IIslandPage
     {
         if (sample is null)
         {
-            _cpu.Set(0, "--", "桥未运行");
-            _gpu.Set(0, "--", "");
-            _fan.Set(0, "--", "");
+            _cpu.Show(0, "--", "--", ThrmLevels.Green);
+            _gpu.Show(0, "--", "--", ThrmLevels.Green);
+            _fan.Show(0, "--", "桥未运行", ThrmLevels.Green);
             _state.Text = "";
             return;
         }
-        _cpu.Set(sample.CpuTemp, $"{sample.CpuTemp:0}", $"{sample.CpuFan:0} RPM");
-        _gpu.Set(sample.GpuTemp, $"{sample.GpuTemp:0}", $"{sample.GpuFan:0} RPM");
-        _fan.Set(sample.CpuFan, $"{sample.CpuFan:0}", $"目标 {sample.CpuFan:0} · {sample.Mode}");
+        _cpu.Show(sample.CpuTemp, $"{sample.CpuTemp:0}", $"{sample.CpuFan:0} RPM", ThrmLevels.Temperature(sample.CpuTemp));
+        _gpu.Show(sample.GpuTemp, $"{sample.GpuTemp:0}", $"{sample.GpuFan:0} RPM", ThrmLevels.Temperature(sample.GpuTemp));
+        _fan.Show(sample.CpuFan, $"{sample.CpuFan:0}", $"目标 {sample.CpuFan:0} · {sample.Mode}", ThrmLevels.Fan(sample.CpuFan));
         _state.Text = "挡位 / gear: " + sample.Mode;
     }
 
     public void Recolor(IslandColors colors)
     {
         _colors = colors;
-        foreach (var card in new[] { _cpu, _gpu, _fan }) card.Recolor(colors);
+        foreach (var card in new[] { _cpu, _gpu, _fan }) card.ApplyTheme(colors);
         _state.Foreground = Brush(colors.Tertiary);
     }
-
-    // A temperature's level color, as the panel's readings take them.
-    internal static string LevelColor(IslandColors colors, double value, double warning, double critical)
-        => value >= critical ? colors.Critical : value >= warning ? colors.Warning : colors.Primary;
 
     internal static SolidColorBrush Brush(string hex) => new((Color)ColorConverter.ConvertFromString(hex));
 }
 
-// One gauge card: the label at the top with its small glyph, a 180-degree arc filled to the reading's share, the
-// figure large in the middle of the arc and a second line under it.
+// The cards' marks, on the 24 grid the contract's glyphs use: a chip for the CPU, a display for the GPU, a fan for the
+// speed.
+internal static class Icons
+{
+    public const string Cpu =
+        "M 7,7 H 17 V 17 H 7 Z M 10,10 H 14 V 14 H 10 Z " +
+        "M 9,7 V 4 M 12,7 V 4 M 15,7 V 4 M 9,17 V 20 M 12,17 V 20 M 15,17 V 20 " +
+        "M 7,9 H 4 M 7,12 H 4 M 7,15 H 4 M 17,9 H 20 M 17,12 H 20 M 17,15 H 20";
+    public const string Gpu =
+        "M 3,6 H 21 V 15 H 3 Z M 6,9 H 18 M 6,12 H 12 M 7,15 V 18 M 17,15 V 18";
+    public const string Fan =
+        "M 12,12 C 10,10 10,6 12,3 C 14,6 14,10 12,12 Z " +
+        "M 12,12 C 14,14 18,14 21,12 C 18,10 14,10 12,12 Z " +
+        "M 12,12 C 10,14 6,14 3,12 C 6,10 10,10 12,12 Z";
+}
+
+// One gauge card: its mark and title across the top, a half-circle arc filled to the reading's share, the figure large
+// with its unit small at its foot, and a second line under that.
 internal sealed class GaugeCard
 {
-    private readonly string _label, _unit;
+    private readonly string _unit;
     private readonly double _min, _max;
-    private readonly TextBlock _title = new() { FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Center };
-    private readonly TextBlock _value = new() { FontSize = 27, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center };
+    private readonly TextBlock _title = new() { FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(5, 0, 0, 0) };
+    private readonly TextBlock _value = new() { FontSize = 30, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center };
+    private readonly TextBlock _unitText = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(1, 0, 0, 6) };
     private readonly TextBlock _sub = new() { FontSize = 10.5, HorizontalAlignment = HorizontalAlignment.Center };
-    private readonly System.Windows.Shapes.Path _track = new() { StrokeThickness = 5, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
-    private readonly System.Windows.Shapes.Path _fill = new() { StrokeThickness = 5, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
+    private readonly System.Windows.Shapes.Path _track = new() { StrokeThickness = 5.5, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
+    private readonly System.Windows.Shapes.Path _fill = new() { StrokeThickness = 5.5, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
+    private readonly System.Windows.Shapes.Path _icon;
     private readonly Border _root;
 
-    private const double ArcWidth = 132, ArcHeight = 74;
+    private const double ArcWidth = 150, ArcHeight = 82, ArcStroke = 5.5;
     private static readonly Geometry ArcGeometry = Arc();
 
     public FrameworkElement Root => _root;
 
-    public GaugeCard(string label, string unit, double min, double max)
+    public GaugeCard(string title, string unit, double min, double max, string icon)
     {
-        _label = label; _unit = unit; _min = min; _max = max;
-        _title.Text = label;
-        _track.Data = ArcGeometry; _track.Stretch = Stretch.None;
-        _fill.Data = ArcGeometry; _fill.Stretch = Stretch.None;
+        _unit = unit; _min = min; _max = max;
+        _title.Text = title;
+        _icon = new System.Windows.Shapes.Path
+        {
+            Data = Parse(icon), Width = 13, Height = 13, Stretch = Stretch.Uniform,
+            StrokeThickness = 1.3, VerticalAlignment = VerticalAlignment.Center,
+            StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round
+        };
+        var head = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 6) };
+        head.Children.Add(_icon); head.Children.Add(_title);
+
+        _track.Data = ArcGeometry;
+        _fill.Data = ArcGeometry;
         var arc = new Canvas { Width = ArcWidth, Height = ArcHeight, HorizontalAlignment = HorizontalAlignment.Center };
         arc.Children.Add(_track); arc.Children.Add(_fill);
+
+        var figure = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+        figure.Children.Add(_value); figure.Children.Add(_unitText);
+
         var stack = new StackPanel();
-        stack.Children.Add(_title);
+        stack.Children.Add(head);
         stack.Children.Add(arc);
-        _value.Margin = new Thickness(0, -34, 0, 0);
-        stack.Children.Add(_value);
+        figure.Margin = new Thickness(0, -40, 0, 0);
+        stack.Children.Add(figure);
         _sub.Margin = new Thickness(0, 2, 0, 0);
         stack.Children.Add(_sub);
-        _root = new Border { Child = stack, Padding = new Thickness(10, 12, 10, 12), Margin = new Thickness(6, 0, 6, 0), CornerRadius = new CornerRadius(12) };
+        _root = new Border { Child = stack, Padding = new Thickness(10, 12, 10, 14), Margin = new Thickness(7, 0, 7, 0), CornerRadius = new CornerRadius(12) };
     }
 
-    // The arc: a half circle of the card's width, round caps at both ends, drawn from the left end.
+    private static Geometry Parse(string data)
+    {
+        try { return System.Windows.Media.Geometry.Parse(data); } catch (Exception) { return System.Windows.Media.Geometry.Empty; }
+    }
+
+    // The half circle, round caps, drawn from the left end clockwise over the top.
     private static Geometry Arc()
     {
-        double r = ArcWidth / 2 - 4, cx = ArcWidth / 2, cy = ArcHeight - 6;
+        double r = ArcWidth / 2 - ArcStroke, cx = ArcWidth / 2, cy = ArcHeight - 8;
         var geometry = new StreamGeometry();
         using (var ctx = geometry.Open())
         {
@@ -208,58 +254,44 @@ internal sealed class GaugeCard
         return geometry;
     }
 
-    public void Set(double value, string figure, string second)
+    // The figures and the arc take the level's color; the card's chrome follows the panel theme.
+    public void Show(double value, string figure, string second, string levelColor)
     {
-        _value.Text = figure + _unit;
+        _value.Text = figure;
+        _unitText.Text = _unit;
         _sub.Text = second;
-        // The fill is the arc up to the reading's share, as a stroke dash of that length.
-        // StrokeDashArray counts multiples of the stroke width, not pixels.
-        double span = Math.PI * (ArcWidth / 2 - 4) / 5;
+        var brush = ThrmPage.Brush(levelColor);
+        _value.Foreground = brush;
+        _unitText.Foreground = brush;
+        _fill.Stroke = brush;
         double share = _max > _min ? Math.Clamp((value - _min) / (_max - _min), 0, 1) : 0;
+        // StrokeDashArray counts multiples of the stroke width, not pixels.
+        double span = Math.PI * (ArcWidth / 2 - ArcStroke) / ArcStroke;
         _fill.StrokeDashArray = [span * share, span * 2];
-        _fill.StrokeDashOffset = 0;
-        _current = value;
-        if (_colors is { } colors) Apply(colors);
     }
 
-    private IslandColors? _colors;
-    private double _current;
-
-    public void Recolor(IslandColors colors)
-    {
-        _colors = colors;
-        Apply(colors);
-    }
-
-    // The arc and the figure take the level's color: temperatures by the panel's warning and critical levels, the fan
-    // speed in the palette's primary throughout (a speed has no warning level).
-    private void Apply(IslandColors colors)
+    public void ApplyTheme(IslandColors colors)
     {
         _title.Foreground = ThrmPage.Brush(colors.Secondary);
+        _icon.Stroke = ThrmPage.Brush(colors.Secondary);
         _sub.Foreground = ThrmPage.Brush(colors.Tertiary);
-        string level = _label.Contains("温度")
-            ? ThrmPage.LevelColor(colors, _current, 75, 88)
-            : colors.Primary;
-        _value.Foreground = ThrmPage.Brush(level);
         _track.Stroke = ThrmPage.Brush(colors.Fill);
-        _fill.Stroke = ThrmPage.Brush(level);
         _root.Background = ThrmPage.Brush(colors.Track);
     }
 }
 
-// The capsule's widget, shaped exactly as the system monitor's own readings: one small ring per figure, each filled to
-// its share and level-colored, with the figure beside it. Three rings here — CPU temperature, GPU temperature and fan
-// speed — so the cooler's read-out sits in the row the same way the built-in readings do.
+// The capsule's widget, shaped as the system monitor's own readings: a small ring with the reading's initial inside and
+// the figure beside it. Three readings — CPU temperature (C), GPU temperature (G) and fan speed (R) — in the size and
+// spacing of the built-in readings.
 internal sealed class ThrmCompact : IIslandCompact
 {
     private readonly StackPanel _row = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-    private readonly Reading _cpu = new(0, 100, "");
-    private readonly Reading _gpu = new(0, 100, "");
-    private readonly Reading _fan = new(0, 4000, "");
-    private IslandColors _colors = InitialColors();
+    private readonly Reading _cpu = new("C", 0, 100);
+    private readonly Reading _gpu = new("G", 0, 100);
+    private readonly Reading _fan = new("R", 0, 5000);
+    private IslandColors _colors = Initial();
 
-    private static IslandColors InitialColors()
-        => new("#4FD17F", "#F0B54A", "#FF6B5E", "#F1F1F4", "#C5C5CB", "#8E8E93", "#2A2A30", "#1D1D21");
+    private static IslandColors Initial() => new("#4FD17F", "#F0B54A", "#FF6B5E", "#F1F1F4", "#C5C5CB", "#8E8E93", "#2A2A30", "#1D1D21");
 
     public ThrmCompact()
     {
@@ -280,14 +312,13 @@ internal sealed class ThrmCompact : IIslandCompact
     {
         _cpu.MeasurePreview("88°"); _gpu.MeasurePreview("88°"); _fan.MeasurePreview("8888");
         _row.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        var width = Math.Ceiling(_row.DesiredSize.Width);
-        return width + 6;
+        return Math.Ceiling(_row.DesiredSize.Width) + 6;
     }
 
     public void OnColorsChanged(IslandColors colors)
     {
         _colors = colors;
-        _cpu.Apply(colors); _gpu.Apply(colors); _fan.Apply(colors);
+        _cpu.ApplyTheme(colors); _gpu.ApplyTheme(colors); _fan.ApplyTheme(colors);
         Paint();
     }
 
@@ -308,19 +339,19 @@ internal sealed class ThrmCompact : IIslandCompact
             _fan.Show("--", 0, _colors.Tertiary);
             return;
         }
-        // Each ring fills to its own share of its range; temperatures take the panel's warning and critical levels.
-        _cpu.Show($"{sample.CpuTemp:0}°", sample.CpuTemp, ThrmPage.LevelColor(_colors, sample.CpuTemp, 75, 88));
-        _gpu.Show($"{sample.GpuTemp:0}°", sample.GpuTemp, ThrmPage.LevelColor(_colors, sample.GpuTemp, 75, 88));
-        _fan.Show($"{sample.CpuFan:0}", sample.CpuFan, _colors.Primary);
+        _cpu.Show($"{sample.CpuTemp:0}°", sample.CpuTemp, ThrmLevels.Temperature(sample.CpuTemp));
+        _gpu.Show($"{sample.GpuTemp:0}°", sample.GpuTemp, ThrmLevels.Temperature(sample.GpuTemp));
+        _fan.Show($"{sample.CpuFan:0}", sample.CpuFan, ThrmLevels.Fan(sample.CpuFan));
     }
 
-    // One reading: the built-ins' small ring (18 DIP, 2 DIP stroke) and its figure beside it.
-    private sealed class Reading(double min, double max, string suffix)
+    // One reading: the built-ins' ring (18 DIP, 2 DIP stroke) with its initial inside, and the figure beside it.
+    private sealed class Reading(string initial, double min, double max)
     {
         private const double Size = 18, Thickness = 2;
         private static readonly Geometry RingGeometry = Ring();
         private readonly System.Windows.Shapes.Path _track = new() { Data = RingGeometry, StrokeThickness = Thickness, Stretch = Stretch.None };
         private readonly System.Windows.Shapes.Path _fill = new() { Data = RingGeometry, StrokeThickness = Thickness, Stretch = Stretch.None };
+        private readonly TextBlock _initial = new() { FontSize = 8, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         private readonly TextBlock _text = new()
         {
             FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center,
@@ -332,20 +363,24 @@ internal sealed class ThrmCompact : IIslandCompact
 
         private FrameworkElement Build()
         {
-            var canvas = new Canvas { Width = Size, Height = Size, VerticalAlignment = VerticalAlignment.Center };
-            canvas.Children.Add(_track);
-            canvas.Children.Add(_fill);
+            var ring = new Grid { Width = Size, Height = Size, VerticalAlignment = VerticalAlignment.Center };
+            ring.Children.Add(_track); ring.Children.Add(_fill);
+            _initial.Text = initial;
+            ring.Children.Add(_initial);
             var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            row.Children.Add(canvas);
-            row.Children.Add(_text);
+            row.Children.Add(ring); row.Children.Add(_text);
             return row;
         }
 
-        public void Apply(IslandColors colors) => _track.Stroke = ThrmPage.Brush(colors.Fill);
+        public void ApplyTheme(IslandColors colors)
+        {
+            _track.Stroke = ThrmPage.Brush(colors.Fill);
+            _initial.Foreground = ThrmPage.Brush(colors.Secondary);
+        }
 
         public void Show(string figure, double value, string color)
         {
-            _text.Text = figure + suffix;
+            _text.Text = figure;
             _text.Foreground = ThrmPage.Brush(color);
             double share = max > min ? Math.Clamp((value - min) / (max - min), 0, 1) : 0;
             // StrokeDashArray counts multiples of the stroke width, not pixels.
@@ -357,7 +392,7 @@ internal sealed class ThrmCompact : IIslandCompact
         public void MeasurePreview(string preview)
         {
             var keep = _text.Text;
-            _text.Text = preview + suffix;
+            _text.Text = preview;
             _text.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             _text.Text = keep;
         }
