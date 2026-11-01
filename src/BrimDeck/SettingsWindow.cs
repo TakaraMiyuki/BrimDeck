@@ -736,6 +736,7 @@ public sealed partial class SettingsWindow : Window
         var row = new Grid { Background = Brushes.Transparent };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(PartHandleWidth) }); row.ColumnDefinitions.Add(new ColumnDefinition());
         row.Children.Add(handle); row.Children.Add(body);
+        Grid.SetColumn(body, 1);
         item = new Border { Child = row, Height = open ? double.NaN : PageRowHeight, BorderBrush = UI.Brush(_palette.RowDivider), BorderThickness = new Thickness(0), Tag = page, RenderTransform = new TranslateTransform() };
         // The sizes close when a drag begins, together with the built-in pages'.
         AttachDrag(handle, () => rows, PageRowHeight, list =>
