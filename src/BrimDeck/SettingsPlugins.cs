@@ -56,6 +56,11 @@ public sealed partial class SettingsWindow
                 "Scans the plugins folder again: plugins added are loaded, plugins changed are replaced, plugins disabled are retired. If anything misbehaves after a reload, restart BrimDeck."));
         reload.Margin = new Thickness(8, 0, 0, 0);
         actions.Children.Add(reload);
+        var reset = OutlineAction(Loc.T("恢复默认", "Restore defaults"),
+            "M 8,2 A 6,6 0 1 0 13,5 M 13,1 V 5 H 9", ResetAllPlugins,
+            Loc.T("把所有插件的开关、尺寸和设置还原为默认值。", "Resets every plugin's switches, sizes and settings to their defaults."));
+        reset.Margin = new Thickness(8, 0, 0, 0);
+        actions.Children.Add(reset);
         var search = new TextBox { Style = (Style)FindResource("SettingsNumber"), Width = 180, Margin = new Thickness(8, 0, 0, 0) };
         AutomationProperties.SetName(search, Loc.T("搜索插件", "Search plugins"));
         search.TextChanged += (_, _) => { _pluginSearch = search.Text; ShowPage(PluginsPageNumber); search.Focus(); search.CaretIndex = search.Text.Length; };
@@ -321,6 +326,17 @@ public sealed partial class SettingsWindow
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         { SaveStatus(ex.Message, true); return; }
+        ReloadPlugins();
+    }
+
+    // 恢复默认: every plugin's switches, sizes and settings entries go back to their defaults; the plugins reload.
+    private void ResetAllPlugins()
+    {
+        var choice = MessageBox.Show(this,
+            Loc.T("要把所有插件的开关、尺寸和设置还原为默认值吗？", "Reset every plugin's switches, sizes and settings to their defaults?"),
+            "BrimDeck", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (choice != MessageBoxResult.Yes) return;
+        Change(s => { s.Extensions = []; s.PluginsOrder = []; });
         ReloadPlugins();
     }
 
