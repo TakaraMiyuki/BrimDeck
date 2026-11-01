@@ -34,15 +34,17 @@ public partial class MainWindow
         _extensionPagesWired = true;
         DeckPages.ExtensionSize = (settings, slot) =>
         {
-            // The reader's own size first, then the plugin's preferred box, then the host default.
+            // The plugin's preferred box is the floor: its content is cut below it. The reader's own size rides on top
+            // of that floor (never under it), so a page saved smaller than the plugin asked still draws whole.
+            var preferred = IslandExtensions.PreferredSize(slot) ?? ExtensionSizes.Default;
             var id = DeckPages.SlotId?.Invoke(slot);
             if (id is { Length: > 0 } key)
             {
                 var entry = settings.Extensions.FirstOrDefault(extension => extension.Id == key);
-                if (entry is { Width: > 0 }) return (entry.Width, entry.Height > 0 ? entry.Height : ExtensionSizes.Default.Height);
+                if (entry is { Width: > 0 })
+                    return (Math.Max(entry.Width, preferred.Width), Math.Max(entry.Height > 0 ? entry.Height : preferred.Height, preferred.Height));
             }
-            if (IslandExtensions.PreferredSize(slot) is { } preferred) return preferred;
-            return ExtensionSizes.Default;
+            return preferred;
         };
         IslandExtensions.ExtensionsChanged += ExtensionSlotsChanged;
         EnsureExtensionPagesOrdered();

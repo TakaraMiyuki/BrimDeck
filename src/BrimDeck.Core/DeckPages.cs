@@ -50,7 +50,17 @@ public static class DeckPages
     public static double MaxWidthOn(double workWidth, double scale = 1) => Math.Max(MinWidth, Math.Min(MaxWidth, Math.Floor((workWidth - 24) / scale)));
 
     public static (double MinWidth, double MaxWidth, double MinHeight, double MaxHeight) Limits(DeckSettings settings, DeckPage page)
-        => (page == DeckPage.Usage ? Math.Max(MinWidth, settings.MinimumWidth) : MinWidth, MaxWidth, MinHeight, MaxHeight);
+    {
+        // A plugin page's floor is what its plugin asked for: the box it draws is cut otherwise. The host's own minimum
+        // still applies, and the max stays the shared one.
+        if (IsExtensionPage(page))
+        {
+            if (ExtensionSize?.Invoke(settings, SlotOf(page)) is var (askedWidth, askedHeight))
+                return (Math.Clamp(Math.Max(MinWidth, askedWidth), MinWidth, MaxWidth), MaxWidth,
+                        Math.Clamp(Math.Max(MinHeight, askedHeight), MinHeight, MaxHeight), MaxHeight);
+        }
+        return (page == DeckPage.Usage ? Math.Max(MinWidth, settings.MinimumWidth) : MinWidth, MaxWidth, MinHeight, MaxHeight);
+    }
 
     // Sets a page's size, as dragging an edge of the open panel does; the values are kept within the page's limits.
     public static void SetSize(DeckSettings settings, DeckPage page, double width, double height)

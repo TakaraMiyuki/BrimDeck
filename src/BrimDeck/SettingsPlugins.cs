@@ -43,7 +43,8 @@ public sealed partial class SettingsWindow
 
         if (!S.EnablePlugins) return; // Off: the page is the switch alone.
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 12) };
+        // The action buttons and the search wrap when the window is narrow, so no button is ever cut.
+        var actions = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 12) };
         actions.Children.Add(OutlineAction(Loc.T("安装插件", "Install plugin"),
             "M 8,1 V 9 M 8,9 L 4.5,5.5 M 8,9 L 11.5,5.5 M 2,11.5 H 14", InstallPlugin,
             Loc.T("选择插件的 DLL 文件，拷入插件文件夹并装入。", "Pick the plugin's DLL file; it is copied into the plugins folder and loaded.")));
@@ -54,14 +55,14 @@ public sealed partial class SettingsWindow
             "M 9.1,4.2 A 3.7,3.7 0 1 0 9.9,7.4 M 9.1,2.2 V 4.2 H 7.1", ReloadPlugins,
             Loc.T("重新扫描插件文件夹：新放入的插件被装入，被修改的插件被替换，被禁用的插件被卸下。重载后若表现异常，重启 BrimDeck。",
                 "Scans the plugins folder again: plugins added are loaded, plugins changed are replaced, plugins disabled are retired. If anything misbehaves after a reload, restart BrimDeck."));
-        reload.Margin = new Thickness(8, 0, 0, 0);
+        reload.Margin = new Thickness(8, 4, 0, 0);
         actions.Children.Add(reload);
         var reset = OutlineAction(Loc.T("恢复默认", "Restore defaults"),
             "M 8,2 A 6,6 0 1 0 13,5 M 13,1 V 5 H 9", ResetAllPlugins,
             Loc.T("把所有插件的开关、尺寸和设置还原为默认值。", "Resets every plugin's switches, sizes and settings to their defaults."));
-        reset.Margin = new Thickness(8, 0, 0, 0);
+        reset.Margin = new Thickness(8, 4, 0, 0);
         actions.Children.Add(reset);
-        var search = new TextBox { Style = (Style)FindResource("SettingsNumber"), Width = 180, Margin = new Thickness(8, 0, 0, 0) };
+        var search = new TextBox { Style = (Style)FindResource("SettingsNumber"), Width = 180, Margin = new Thickness(8, 4, 0, 0) };
         AutomationProperties.SetName(search, Loc.T("搜索插件", "Search plugins"));
         search.TextChanged += (_, _) => { _pluginSearch = search.Text; ShowPage(PluginsPageNumber); search.Focus(); search.CaretIndex = search.Text.Length; };
         actions.Children.Add(search);
@@ -217,6 +218,9 @@ public sealed partial class SettingsWindow
             // did not change), so it raises no ExtensionsChanged and the sidebar would keep its old order. Rebuild it here.
             RebuildPluginNavPages();
             ReloadPlugins();
+            // The slots follow the new file order, so the pages move with them; the saved page order and the open page
+            // are rewritten in the same slots they now hold, keeping the reader's arrangement of the built-in pages.
+            RealignExtensionPageOrder(order);
         }, null);
         return item;
     }
@@ -309,6 +313,31 @@ public sealed partial class SettingsWindow
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         { SaveStatus(ex.Message, true); }
+    }
+
+    // The plugins were reordered, so their slots moved with them: the saved page order names pages by slot (Extension0 +
+    // slot). The built-in pages keep their places, and the plugin pages take the new slots in the new file order, so the
+    // page switch keeps showing each plugin where the reader put it.
+    private void RealignExtensionPageOrder(IReadOnlyList<string> fileOrder)
+    {
+        Change(s =>
+        {
+            var slots = new Dictionary<string, DeckPage>(StringComparer.OrdinalIgnoreCase);
+            int at = 0;
+            foreach (var file in fileOrder)
+            {
+                var plugin = IslandExtensions.Plugins.FirstOrDefault(p => string.Equals(System.IO.Path.GetFileName(p.File), file, StringComparison.OrdinalIgnoreCase));
+                if (plugin is not { Slot: >= 0 and < 4 }) continue;
+                slots[plugin.Id] = DeckPage.Extension0 + plugin.Slot;
+                at++;
+            }
+            if (at == 0) return;
+            // The plugin pages, in the new slot order, are placed into the positions the old ones held.
+            var reordered = slots.Values.ToList();
+            int next = 0;
+            s.PageOrder = s.PageOrder.Select(page => DeckPages.IsExtensionPage(page) && next < reordered.Count ? reordered[next++] : page).ToList();
+        });
+        ShowPage(PluginsPageNumber);
     }
 
     // 安装插件: pick a DLL, copy it into the plugins folder, and reload so it loads at once.
