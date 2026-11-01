@@ -671,8 +671,9 @@ public sealed partial class SettingsWindow : Window
         foreach (var (row, sizes, arrow) in _pageRows) { sizes.Visibility = Visibility.Collapsed; PointArrow(arrow, false); row.Height = PageRowHeight; }
     }
 
-    // The plugin page's row in the expanded view's page editor: the handle, the plugin's name and the switch. A page
-    // switched off keeps its place in the order and its size, and comes back with the switch.
+    // The plugin page's row in the expanded view's page editor: the handle, the plugin's name, the switch and the arrow
+    // over the same size controls the built-in pages carry (width, height and the three quick sizes). A page switched
+    // off keeps its place in the order and its size, and comes back with the switch.
     private Border ExtensionPageRow(DeckPage page, StackPanel rows)
     {
         int slot = DeckPages.SlotOf(page);
@@ -683,19 +684,76 @@ public sealed partial class SettingsWindow : Window
             catch (Exception) { title = plugin.Id; }
         else if (DeckPages.SlotId?.Invoke(slot) is { Length: > 0 } id) title = id;
         bool shown = DeckPages.Shown(S, page);
+        bool open = _openSizes.Contains(page);
+        Button arrow = null!;
+        Border item = null!;
+        StackPanel sizes = null!;
+        void Flip()
+        {
+            bool now = !_openSizes.Remove(page);
+            if (now) _openSizes.Add(page);
+            sizes.Visibility = now ? Visibility.Visible : Visibility.Collapsed; PointArrow(arrow, now);
+            item.Height = now ? double.NaN : PageRowHeight;
+        }
         var toggle = new CheckBox { Style = (Style)FindResource("SettingsToggle"), IsChecked = shown, Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
         AutomationProperties.SetName(toggle, Loc.T("显示插件页", "Show plugin page") + " · " + title);
         toggle.Checked += (_, _) => Change(s => SetExtensionPageShown(s, page, true));
         toggle.Unchecked += (_, _) => Change(s => SetExtensionPageShown(s, page, false));
         var controls = new StackPanel { Orientation = Orientation.Horizontal }; controls.Children.Add(toggle);
+        arrow = ChevronButton(Loc.T("展开插件页尺寸", "Show plugin page sizes"), () => Flip());
+        arrow.Margin = new Thickness(12, 0, 0, 0);
+        PointArrow(arrow, open);
+        controls.Children.Add(arrow);
         var header = Row(title, controls); header.Background = Brushes.Transparent;
+        header.MouseLeftButtonDown += (_, e) => { Flip(); e.Handled = true; };
+        var sizesBody = new StackPanel { Margin = new Thickness(20, 4, 0, 8), Visibility = open ? Visibility.Visible : Visibility.Collapsed };
+        sizes = sizesBody;
+        sizes = Collect(() =>
+        {
+            var (currentWidth, currentHeight) = ExtensionPageSize(S, page);
+            var dimensions = new Grid { Margin = new Thickness(0, 8, 0, 0) }; dimensions.ColumnDefinitions.Add(new()); dimensions.ColumnDefinitions.Add(new());
+            var width = Dimension(Loc.T("宽度", "Width"), currentWidth, DeckPages.MinWidth, DeckPages.MaxWidth, value => Resize(s => DeckPages.SetSize(s, page, value, ExtensionPageSize(s, page).Height), page));
+            width.Margin = new Thickness(0, 0, 20, 0); dimensions.Children.Add(width);
+            var height = Dimension(Loc.T("高度", "Height"), currentHeight, DeckPages.MinHeight, DeckPages.MaxHeight, value => Resize(s => DeckPages.SetSize(s, page, ExtensionPageSize(s, page).Width, value), page));
+            height.Margin = new Thickness(20, 0, 0, 0); Grid.SetColumn(height, 1); dimensions.Children.Add(height);
+            Target.Children.Add(dimensions);
+            var quick = KeepPreview(new UniformGrid { Columns = 3, Width = 292 });
+            foreach (var size in Enum.GetValues<PanelSize>())
+            {
+                var (w, h) = ExtensionSizes.For(size);
+                var choice = new RadioButton { Style = (Style)FindResource("SettingsSegment"), Content = PanelSizes.Name(size), GroupName = "ExtensionSize" + page,
+                    IsChecked = currentWidth == w && currentHeight == h };
+                AutomationProperties.SetName(choice, Loc.T("快捷尺寸 ", "Quick size ") + PanelSizes.Name(size));
+                choice.Checked += (_, _) => { Resize(s => DeckPages.SetSize(s, page, w, h), page); ShowPage(2); };
+                quick.Children.Add(choice);
+            }
+            QuickSizeRow(quick);
+        });
+        var body = new StackPanel(); body.Children.Add(header); body.Children.Add(sizes); body.Margin = new Thickness(4, 0, 0, 0);
+        Grid.SetColumn(body, 1);
         var handle = new Border { Width = 22, Height = PageRowHeight, VerticalAlignment = VerticalAlignment.Top, Background = Brushes.Transparent, Cursor = Cursors.SizeAll,
             HorizontalAlignment = HorizontalAlignment.Left, Child = Grip(TextTertiary) };
         var row = new Grid { Background = Brushes.Transparent };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(PartHandleWidth) }); row.ColumnDefinitions.Add(new ColumnDefinition());
-        row.Children.Add(handle); row.Children.Add(header);
-        Grid.SetColumn(header, 1);
-        return new Border { Child = row, Height = PageRowHeight, BorderBrush = UI.Brush(_palette.RowDivider), BorderThickness = new Thickness(0), Tag = page, RenderTransform = new TranslateTransform() };
+        row.Children.Add(handle); row.Children.Add(body);
+        item = new Border { Child = row, Height = open ? double.NaN : PageRowHeight, BorderBrush = UI.Brush(_palette.RowDivider), BorderThickness = new Thickness(0), Tag = page, RenderTransform = new TranslateTransform() };
+        // The sizes close when a drag begins, together with the built-in pages'.
+        AttachDrag(handle, () => rows, PageRowHeight, list =>
+        {
+            var order = list.Children.OfType<Border>().Where(b => b.Tag is DeckPage).Select(b => (DeckPage)b.Tag).ToArray();
+            Change(s => s.PageOrder = [.. order]);
+        }, () => { _openSizes.Remove(page); sizes.Visibility = Visibility.Collapsed; PointArrow(arrow, false); item.Height = PageRowHeight; });
+        return item;
+    }
+
+    // A plugin page's current size, from its plugin's settings entry (the reader's drags) with the plugin's ask as the
+    // fallback; unknown plugins read the host default.
+    private static (double Width, double Height) ExtensionPageSize(DeckSettings settings, DeckPage page)
+    {
+        if (DeckPages.SlotId?.Invoke(DeckPages.SlotOf(page)) is { Length: > 0 } id
+            && settings.Extensions.FirstOrDefault(extension => extension.Id == id) is { Width: > 0 } entry)
+            return (entry.Width, entry.Height > 0 ? entry.Height : ExtensionSizes.Default.Height);
+        return ExtensionSizes.Default;
     }
 
     // The shown switch of a plugin page, kept on the plugin's own settings entry; a plugin the host cannot name has no
