@@ -93,6 +93,10 @@ public interface IIslandControls
     FrameworkElement Toggle(string title, bool isOn, Action<bool> changed);
     // A slider row; changed reports the value at each step.
     FrameworkElement Slider(string title, double value, double min, double max, Action<double> changed);
+    // A number row: a slider, a box to type an exact value into, and step buttons — the settings window's own numeric
+    // control, as its page sizes use. Changed reports the value as it is typed, stepped or slid. step is how much one
+    // press of the step buttons (or one slide tick) moves; unit is the small label after the box.
+    FrameworkElement Number(string title, double value, double min, double max, Action<double> changed, double step = 10, string unit = "DIP");
     // A dropdown row; changed reports the chosen index.
     FrameworkElement Combo(string title, IReadOnlyList<string> options, int index, Action<int> changed);
     // A line of text: primary by default, secondary for the quieter shade.

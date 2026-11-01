@@ -213,6 +213,9 @@ public sealed partial class SettingsWindow
         {
             var order = arranged.Children.OfType<Border>().Where(b => b.Tag is string).Select(b => (string)b.Tag).ToList();
             Change(s => s.PluginsOrder = order);
+            // The sidebar lists the plugin pages in this same order; a re-scan keeps the loaded plugins (their stamps
+            // did not change), so it raises no ExtensionsChanged and the sidebar would keep its old order. Rebuild it here.
+            RebuildPluginNavPages();
             ReloadPlugins();
         }, null);
         return item;

@@ -58,9 +58,11 @@ public sealed class PomodoroPlugin : IIslandExtension
             settings.Save(_host);
             _timer.ApplySettings();
         }
-        var work = controls.Slider("专注时长", settings.WorkMinutes, 5, 90, value => Apply(value, settings.BreakMinutes, settings.Rounds));
-        var rest = controls.Slider("休息时长", settings.BreakMinutes, 1, 30, value => Apply(settings.WorkMinutes, value, settings.Rounds));
-        var rounds = controls.Slider("轮数", settings.Rounds, 1, 8, value => Apply(settings.WorkMinutes, settings.BreakMinutes, value));
+        // The host's number control: a slider for sweeping, a box to type an exact value into, step buttons for one
+        // minute at a time.
+        var work = controls.Number("专注时长", settings.WorkMinutes, 5, 90, value => Apply(value, settings.BreakMinutes, settings.Rounds), 1, "分钟");
+        var rest = controls.Number("休息时长", settings.BreakMinutes, 1, 30, value => Apply(settings.WorkMinutes, value, settings.Rounds), 1, "分钟");
+        var rounds = controls.Number("轮数", settings.Rounds, 1, 8, value => Apply(settings.WorkMinutes, settings.BreakMinutes, value), 1, "轮");
         return controls.Group("番茄钟", work, rest, rounds);
     }
 }
