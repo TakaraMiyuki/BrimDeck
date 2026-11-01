@@ -48,7 +48,7 @@ public partial class MainWindow
         EnsureExtensionPagesOrdered();
     }
 
-    // Enters every occupied slot's page into the saved order once, so the tab stands and the order persists.
+    private void EnsureCompactKeys() => IslandExtensions.EnsureCompactKeys(Settings);
     private void EnsureExtensionPagesOrdered()
     {
         bool changed = false;
@@ -81,6 +81,7 @@ public partial class MainWindow
             _extensionViewOwners.Remove(slot);
         }
         EnsureExtensionPagesOrdered();
+        EnsureCompactKeys();
         // Compact views of plugins that went away are retired; a collapsed panel rebuilds its row so a new widget shows.
         var live = IslandExtensions.Compacts().Select(entry => entry.Compact).ToHashSet();
         foreach (var compact in _compactViews.Keys.ToList())

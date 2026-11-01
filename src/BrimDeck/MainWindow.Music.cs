@@ -932,6 +932,8 @@ public partial class MainWindow
         if (EffectiveStyle is CompactStyle.Capsule or CompactStyle.Notch && pluginsShown)
             foreach (var (plugin, compact) in IslandExtensions.Compacts())
             {
+                // The reader's switch per widget (the collapsed view's editor) keeps a widget out of the row.
+                if (Settings.Extensions.FirstOrDefault(extension => extension.Id == plugin.Id) is { CompactShown: false }) continue;
                 var view = EnsureCompactView(plugin, compact);
                 if (view is null) continue;
                 double width = 0;
@@ -967,7 +969,27 @@ public partial class MainWindow
         double titleFloor = hasText ? Math.Min(shortest, titleWanted) : 0;
         var ringWidths = apps.Select(_ => layout.RingSize).ToList();
         bool hasRings = ringWidths.Count > 0, hasReadings = readingWidths.Count > 0;
-        int parts = (hasCover ? 1 : 0) + (hasEqualizer ? 1 : 0) + (hasClock ? 1 : 0) + (hasText ? 1 : 0) + (hasRings ? 1 : 0) + (hasReadings ? 1 : 0) + pluginParts.Count;
+        // The widgets fit into what the built-ins' minimums leave, in the order the editor arranged them; one that
+        // cannot fit whole is left out entirely rather than shown cut (让位), and the note goes to the plugins page.
+        var compactOrder = Settings.CompactOrder(EffectiveStyle);
+        bool widgetTruncated = false;
+        double widgetBudget = SnapDown(contentWidth, dpi)
+            - (hasCover ? layout.CoverSize : 0) - (hasEqualizer ? layout.EqualizerSize : 0) - (hasClock ? clock!.ReservedWidth : 0)
+            - titleFloor
+            - CompactSpacing.Minimum(ringWidths, layout.RingGap) - CompactSpacing.Minimum(readingWidths, strip?.Gap ?? 0)
+            - unit * Math.Max(0, pluginParts.Count + (hasCover ? 1 : 0) + (hasEqualizer ? 1 : 0) + (hasClock ? 1 : 0) + (hasText ? 1 : 0) + (hasRings ? 1 : 0) + (hasReadings ? 1 : 0) - 1);
+        for (int i = 0; i < pluginParts.Count; i++)
+        {
+            var entry = pluginParts[i];
+            bool positioned = compactOrder.Any(name => name.Equals("plugin:" + entry.Plugin.Id, StringComparison.OrdinalIgnoreCase));
+            if (!positioned || entry.Width > widgetBudget + .5)
+            {
+                if (positioned) widgetTruncated = true;   // a placed widget that could not fit whole
+                pluginParts[i] = (entry.Plugin, entry.Compact, 0);
+            }
+            else widgetBudget -= entry.Width;
+        }
+        int parts = (hasCover ? 1 : 0) + (hasEqualizer ? 1 : 0) + (hasClock ? 1 : 0) + (hasText ? 1 : 0) + (hasRings ? 1 : 0) + (hasReadings ? 1 : 0) + pluginParts.Count(part => part.Width > 0);
         double others = (hasCover ? layout.CoverSize : 0) + (hasEqualizer ? layout.EqualizerSize : 0) + (hasClock ? clock!.ReservedWidth : 0)
             + pluginParts.Sum(part => part.Width) + Math.Max(0, parts - 1) * unit;
         double pool = SnapDown(contentWidth, dpi) - others - titleShare;
@@ -1002,13 +1024,17 @@ public partial class MainWindow
             else if (part == CompactPart.Monitor && readings.Window > 0) shown.Add((part, new(readings.Window)));
             else if (part == CompactPart.Equalizer && hasEqualizer) shown.Add((part, new(layout.EqualizerSize)));
             else if (part == CompactPart.Clock && hasClock) shown.Add((part, new(clock!.ReservedWidth)));
-            // The plugins' own widgets at the place the editor gave them, in the plugins' order. A surface whose width
-            // fits everything (auto-width, or a wide fixed one) gives each widget what it asked; a narrow fixed one
-            // leaves a widget out entirely rather than showing it cut — the built-ins keep their size (让位).
-            else if (part == CompactPart.Plugins)
-                foreach (var pluginPart in pluginParts) shown.Add(((object)pluginPart.Compact, new CompactSpacing.Part(pluginPart.Width)));
+            // The plugins' own widgets, each at the place the editor gave its key. A surface whose width fits everything
+            // (auto-width, or a wide fixed one) gives each widget what it asked; a narrow fixed one leaves a widget out
+            // entirely rather than showing it cut — the built-ins keep their size (让位).
+            else if (part.StartsWith("plugin:", StringComparison.Ordinal))
+            {
+                var key = part["plugin:".Length..];
+                var match = pluginParts.FirstOrDefault(entry => entry.Plugin.Id.Equals(key, StringComparison.OrdinalIgnoreCase));
+                if (match.Plugin is not null && match.Width > 0) shown.Add(((object)match.Compact, new CompactSpacing.Part(match.Width)));
+            }
         }
-        IslandExtensions.CompactTruncated = pluginParts.Count > 0 && shown.Count(entry => entry.Part is IIslandCompact) < pluginParts.Count;
+        IslandExtensions.CompactTruncated = widgetTruncated;
         int title = shown.FindIndex(entry => entry.Part is CompactPart.Music);
         // One gap between every two parts; what is left widens them evenly and then centres the row.
         var place = CompactSpacing.Arrange([.. shown.Select(entry => entry.Size)], title, titleWanted, shortest, grid.Width, unit, scale, dpi);

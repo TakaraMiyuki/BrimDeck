@@ -49,6 +49,10 @@ internal static class IslandExtensions
         public event Action? ColorsChanged;
         internal void RaiseColors() => ColorsChanged?.Invoke();
 
+        // The settings window is the control factory; it exists whenever a settings page could be built.
+        public IIslandControls Controls => IslandExtensions.ControlsProvider?.Invoke()
+            ?? throw new InvalidOperationException("the settings window is not open");
+
         public void RegisterPage(IIslandPage page)
         {
             if (Pages.Any(registered => string.Equals(registered.Id, page.Id, StringComparison.Ordinal)))
@@ -105,6 +109,23 @@ internal static class IslandExtensions
 
     // Raised after a scan changed what is loaded: the app rebuilds the tabs, the capsule row and the plugins page.
     public static event Action? ExtensionsChanged;
+
+    // The settings window, as the plugins' control factory (IIslandHost.Controls). Set when the window opens.
+    public static Func<IIslandControls>? ControlsProvider;
+
+    // Each loaded plugin's widget key enters both collapsed orders once, at the end; the reader arranges from there.
+    // Called when the plugins change and when the settings window opens.
+    public static void EnsureCompactKeys(DeckSettings settings)
+    {
+        bool changed = false;
+        foreach (var (plugin, compact) in Compacts())
+        {
+            var key = "plugin:" + plugin.Id;
+            if (!settings.NotchOrder.Contains(key)) { settings.NotchOrder = [.. settings.NotchOrder, key]; changed = true; }
+            if (!settings.CapsuleOrder.Contains(key)) { settings.CapsuleOrder = [.. settings.CapsuleOrder, key]; changed = true; }
+        }
+        if (changed) App.QueueSaveFromPlugins();
+    }
 
     private static DeckSettings Settings = new();
 

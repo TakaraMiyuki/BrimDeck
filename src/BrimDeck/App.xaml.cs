@@ -167,7 +167,8 @@ public partial class App : Application
         if (_settingsWindow is null)
         {
             _settingsWindow = new SettingsWindow(this);
-            _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+            _settingsWindow.Closed += (_, _) => { _settingsWindow = null; IslandExtensions.ControlsProvider = null; };
+            IslandExtensions.ControlsProvider = () => _settingsWindow;
             _settingsWindow.Show();
             if (Store.LoadWarning is { } warning) _settingsWindow.SaveStatus(warning, true);
         }
@@ -443,6 +444,8 @@ public partial class App : Application
     }
 
     public void QueueSave() { _save.Stop(); _save.Start(); }
+    // The plugins' key pass runs before the settings window may exist; saving still goes through this instance.
+    internal static void QueueSaveFromPlugins() { if (Current is App app && !app.Exiting) app.QueueSave(); }
     // The settings are turned into text here, where they live, and written on the thread pool: writing the file (and the virus
     // scan that follows a write) took 60 ms and more, which showed as a stall after every page switch. Writes run one after
     // another in the order they were asked for, so the newest settings always land last.

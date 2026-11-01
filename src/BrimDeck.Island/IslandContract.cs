@@ -20,10 +20,11 @@ public sealed record IslandColors(string Normal, string Warning, string Critical
 
 // The version of this contract the host implements. A plugin that needs a newer host says so with
 // IIslandExtension.MinHostVersion and is refused at load with both numbers in the reason, rather than failing later
-// on a member it cannot see.
+// on a member it cannot see. Version 2 added the plugin's own settings page (CreateSettingsView), the metadata the
+// settings window shows (Author, Description) and the host's control factory (IIslandHost.Controls).
 public static class IslandHost
 {
-    public const int Version = 1;
+    public const int Version = 2;
 }
 
 // One plugin: a class library with a public, non-abstract class implementing this interface and a parameterless
@@ -41,10 +42,19 @@ public interface IIslandExtension
     string Version => "";
     // The plugin's repository address, reserved for the plugin market.
     string Repository => "";
+    // The plugin's author, shown at the top of its settings page. Empty hides the line.
+    string Author => "";
+    // The plugin's one-line description, shown at the top of its settings page. Empty hides the line.
+    string Description => "";
     // The lowest host contract version this plugin works with. A host older than this refuses the plugin at load.
     int MinHostVersion => 1;
     // Called once on the UI thread. Register pages and compact widgets here and keep the host reference for later.
     void Initialize(IIslandHost host);
+    // The plugin's own settings, built each time the settings window opens the page, with the palette of the moment.
+    // Use IIslandHost.Controls for widgets that match the settings window's look, or draw the whole page yourself.
+    // Null keeps the page to the host's own sections (the plugin's capabilities and its page size). Thrown exceptions
+    // are the plugin's own: the host shows a placeholder and the app goes on.
+    FrameworkElement? CreateSettingsView(IslandColors colors) => null;
 }
 
 // The host side of the contract, passed to Initialize. Registration is the whole surface for now: pages for the open
@@ -66,6 +76,29 @@ public interface IIslandHost
     // host; serialize your own object into them.
     string? GetSetting(string key);
     void SetSetting(string key, string? value);
+    // The host's control factory: widgets that match the settings window's own look, for the plugin's settings page.
+    // Every call returns a fresh element; insert them in the order they should stand.
+    IIslandControls Controls { get; }
+}
+
+// The settings-page control factory, in the look of the settings window itself. Everything returns a fresh
+// FrameworkElement ready to be inserted into the plugin's settings view, top to bottom.
+public interface IIslandControls
+{
+    // A section with a title and the rows inside it.
+    FrameworkElement Group(string title, params FrameworkElement[] children);
+    // A labelled row holding one control (a toggle, a slider, a combo, …).
+    FrameworkElement Row(string title, FrameworkElement content);
+    // A switch row.
+    FrameworkElement Toggle(string title, bool isOn, Action<bool> changed);
+    // A slider row; changed reports the value at each step.
+    FrameworkElement Slider(string title, double value, double min, double max, Action<double> changed);
+    // A dropdown row; changed reports the chosen index.
+    FrameworkElement Combo(string title, IReadOnlyList<string> options, int index, Action<int> changed);
+    // A line of text: primary by default, secondary for the quieter shade.
+    FrameworkElement Text(string text, bool secondary = false);
+    // A row with a button at the right (open a folder, reset, …).
+    FrameworkElement ActionRow(string title, string buttonText, Action clicked);
 }
 
 // One page of the open panel, drawn by the plugin as any WPF content. The view is created once per panel that shows

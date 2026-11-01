@@ -19,6 +19,8 @@ public sealed partial class SettingsWindow
     private const double PluginRowHeight = 44;
     // Which plugin rows stand open, kept while the page is rebuilt; keyed by the DLL file name.
     private readonly HashSet<string> _pluginOpenRows = [];
+    // The search text the plugins list filters by; empty shows everything.
+    private string _pluginSearch = "";
 
     private void PluginsPage()
     {
@@ -41,19 +43,34 @@ public sealed partial class SettingsWindow
 
         if (!S.EnablePlugins) return; // Off: the page is the switch alone.
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 18) };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 12) };
+        actions.Children.Add(OutlineAction(Loc.T("安装插件", "Install plugin"),
+            "M 8,1 V 9 M 8,9 L 4.5,5.5 M 8,9 L 11.5,5.5 M 2,11.5 H 14", InstallPlugin,
+            Loc.T("选择插件的 DLL 文件，拷入插件文件夹并装入。", "Pick the plugin's DLL file; it is copied into the plugins folder and loaded.")));
         actions.Children.Add(OutlineAction(Loc.T("打开插件文件夹", "Open plugins folder"),
             "M 1.5,4.4 H 4.4 L 5.6,3 H 10.5 V 9.5 H 1.5 Z", OpenPluginsFolder,
             Loc.T("打开存放插件的目录。", "Opens the folder the plugins live in.")));
         var reload = OutlineAction(Loc.T("重新加载", "Reload"),
             "M 9.1,4.2 A 3.7,3.7 0 1 0 9.9,7.4 M 9.1,2.2 V 4.2 H 7.1", ReloadPlugins,
-            Loc.T("重新扫描插件文件夹：新放入的插件被装入，被修改的插件被替换，被禁用的插件被卸下；无需重启本软件。",
-                "Scans the plugins folder again: plugins added are loaded, plugins changed are replaced, plugins disabled are retired; no restart needed."));
+            Loc.T("重新扫描插件文件夹：新放入的插件被装入，被修改的插件被替换，被禁用的插件被卸下。重载后若表现异常，重启 BrimDeck。",
+                "Scans the plugins folder again: plugins added are loaded, plugins changed are replaced, plugins disabled are retired. If anything misbehaves after a reload, restart BrimDeck."));
         reload.Margin = new Thickness(8, 0, 0, 0);
         actions.Children.Add(reload);
+        var search = new TextBox { Style = (Style)FindResource("SettingsNumber"), Width = 180, Margin = new Thickness(8, 0, 0, 0) };
+        AutomationProperties.SetName(search, Loc.T("搜索插件", "Search plugins"));
+        search.TextChanged += (_, _) => { _pluginSearch = search.Text; ShowPage(PluginsPageNumber); search.Focus(); search.CaretIndex = search.Text.Length; };
+        actions.Children.Add(search);
         _content.Children.Add(actions);
 
         var files = OrderedFiles();
+        if (_pluginSearch.Length > 0)
+            files = files.Where(file =>
+            {
+                var plugin = IslandExtensions.Plugins.FirstOrDefault(p => string.Equals(Path.GetFileName(p.File), file, StringComparison.OrdinalIgnoreCase));
+                string hay = file;
+                if (plugin is not null) try { hay = string.Join(" ", file, plugin.Id, plugin.Extension.TitleZh, plugin.Extension.TitleEn); } catch (Exception) { }
+                return hay.Contains(_pluginSearch, StringComparison.OrdinalIgnoreCase);
+            }).ToList();
         SectionTitle(files.Count > 0
             ? Loc.T($"已安装（{files.Count}）", $"Installed ({files.Count})")
             : Loc.T("已安装", "Installed"));
@@ -65,7 +82,7 @@ public sealed partial class SettingsWindow
             return;
         }
         var list = new StackPanel();
-        foreach (var file in files) list.Children.Add(PluginRow(file));
+        foreach (var file in files) list.Children.Add(PluginRow(file, list));
         Group(list);
         UpdateDividers(list);
         // The collapsed row had less room than the widgets asked: the reader can widen it or turn auto-width back on.
@@ -91,7 +108,7 @@ public sealed partial class SettingsWindow
 
     // One row per file: the drag handle, the glyph and title (greyed while disabled), the enable toggle and the arrow
     // that opens what the plugin registered, where it came from and why it may not have loaded.
-    private FrameworkElement PluginRow(string file)
+    private FrameworkElement PluginRow(string file, StackPanel rows)
     {
         bool disabled = S.PluginsDisabledFiles.Any(name => string.Equals(name, file, StringComparison.OrdinalIgnoreCase));
         var plugin = IslandExtensions.Plugins.FirstOrDefault(p => string.Equals(Path.GetFileName(p.File), file, StringComparison.OrdinalIgnoreCase));
@@ -125,8 +142,13 @@ public sealed partial class SettingsWindow
         }
 
         var header = new Grid { MinHeight = PluginRowHeight, Background = Brushes.Transparent };
+        // The drag handle: the plugins' order here is the load order and the sidebar's order (the display order lives
+        // in the collapsed and expanded views' own editors).
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         string? glyphData = null;
         if (plugin is not null) try { glyphData = plugin.Extension.Glyph; } catch (Exception) { }
@@ -139,24 +161,43 @@ public sealed partial class SettingsWindow
             Width = 16, Height = 16, Stretch = Stretch.Uniform,
             VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0), Opacity = disabled ? 0.4 : 1
         };
+        Grid.SetColumn(glyph, 1);
         header.Children.Add(glyph);
         var name = TextLine(title, 12.5, disabled ? TextSecondary : TextPrimary);
         name.VerticalAlignment = VerticalAlignment.Center; name.TextTrimming = TextTrimming.CharacterEllipsis;
-        Grid.SetColumn(name, 1);
+        Grid.SetColumn(name, 2);
         header.Children.Add(name);
+        // The state the row is in: what the reader needs to know at a glance.
+        string state = disabled ? Loc.T("已停用", "Disabled")
+            : failure.File is not null ? Loc.T("加载失败", "Failed to load")
+            : plugin is not null && plugin.Extension.MinHostVersion > BrimDeck.Island.IslandHost.Version ? Loc.T($"需要更新 BrimDeck（此插件需要 v{plugin.Extension.MinHostVersion}）", "Needs a newer BrimDeck (this plugin asks for v" + plugin.Extension.MinHostVersion + ")")
+            : Loc.T("正常", "Normal");
+        var stateLabel = TextLine(state, 11.5, disabled || failure.File is not null ? TextTertiary : UI.Secondary);
+        stateLabel.VerticalAlignment = VerticalAlignment.Center; stateLabel.Margin = new Thickness(12, 0, 12, 0);
+        stateLabel.MinWidth = 90; stateLabel.TextAlignment = TextAlignment.Right;
+        Grid.SetColumn(stateLabel, 3);
+        header.Children.Add(stateLabel);
         var toggle = new CheckBox { Style = (Style)FindResource("SettingsToggle"), IsChecked = !disabled, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
         AutomationProperties.SetName(toggle, Loc.T("启用 ", "Enable ") + title);
         toggle.Checked += (_, _) => EnablePlugin(file);
         toggle.Unchecked += (_, _) => DisablePlugin(file);
-        Grid.SetColumn(toggle, 2);
+        Grid.SetColumn(toggle, 4);
         header.Children.Add(toggle);
         arrow = ChevronButton(Loc.T("展开插件信息", "Show plugin details"), Flip);
         arrow.Margin = new Thickness(4, 0, 0, 0);
         PointArrow(arrow, open);
-        Grid.SetColumn(arrow, 3);
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(arrow, 5);
         header.Children.Add(arrow);
         header.MouseLeftButtonDown += (_, e) => { Flip(); e.Handled = true; };
+        var handle = new Border { Width = 22, Height = PluginRowHeight, VerticalAlignment = VerticalAlignment.Center, Background = Brushes.Transparent, Cursor = Cursors.SizeAll, HorizontalAlignment = HorizontalAlignment.Left, Child = Grip(TextTertiary) };
+        Grid.SetColumn(handle, 0);
+        header.Children.Add(handle);
+        AttachDrag(handle, () => rows, PluginRowHeight, arranged =>
+        {
+            var order = arranged.Children.OfType<Border>().Where(b => b.Tag is string).Select(b => (string)b.Tag).ToList();
+            Change(s => s.PluginsOrder = order);
+            ReloadPlugins();
+        }, null);
 
         var detailsBody = new StackPanel { Margin = new Thickness(26, 0, 0, 10), Visibility = open ? Visibility.Visible : Visibility.Collapsed };
         foreach (var line in DetailLines(file, plugin, known, failure, skipped)) detailsBody.Children.Add(line);
@@ -257,6 +298,27 @@ public sealed partial class SettingsWindow
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         { SaveStatus(ex.Message, true); }
+    }
+
+    // 安装插件: pick a DLL, copy it into the plugins folder, and reload so it loads at once.
+    private void InstallPlugin()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = Loc.T("选择插件", "Choose a plugin"),
+            Filter = Loc.T("插件 (*.dll)|*.dll", "Plugins (*.dll)|*.dll"),
+            CheckFileExists = true
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        try
+        {
+            Directory.CreateDirectory(IslandExtensions.Folder);
+            var target = Path.Combine(IslandExtensions.Folder, Path.GetFileName(dialog.FileName));
+            File.Copy(dialog.FileName, target, overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        { SaveStatus(ex.Message, true); return; }
+        ReloadPlugins();
     }
 
     private List<string> SafeDiskFiles()

@@ -62,22 +62,32 @@ public sealed partial class SettingsWindow
             {
                 CompactPart.Equalizer => EqualizerRow(style, rows),
                 CompactPart.Clock => ClockRow(style, rows),
-                CompactPart.Plugins => PluginsRow(style, rows),
+                var pluginKey when pluginKey.StartsWith("plugin:", StringComparison.Ordinal) => PluginPartRow(style, pluginKey, rows),
                 _ => PartRow(style, part, rows)
             });
         UpdateDividers(rows);
         Group(rows);
     }
 
-    // The plugins' own widgets, one row for the group: the handle, the name and the switch — the widgets inside draw at
-    // the widths their plugins ask, and a plugin sits here only while it is loaded and wants to.
-    private Border PluginsRow(CompactStyle style, StackPanel rows)
+    // One plugin's widget as its own part: the handle, the plugin's name and the switch, which keeps the widget out of
+    // the collapsed row without losing its place in the order.
+    private Border PluginPartRow(CompactStyle style, string key, StackPanel rows)
     {
-        bool notch = style == CompactStyle.Notch;
-        var (title, shown) = notch
-            ? (Loc.T("插件部件", "Plugin widgets"), S.NotchPlugins)
-            : (Loc.T("插件部件", "Plugin widgets"), S.CapsulePlugins);
-        void Show(bool on) => Change(s => { if (notch) s.NotchPlugins = on; else s.CapsulePlugins = on; });
+        var id = key["plugin:".Length..];
+        string title = id;
+        try
+        {
+            var plugin = IslandExtensions.Plugins.First(p => p.Id == id);
+            title = Loc.IsEnglish ? plugin.Extension.TitleEn : plugin.Extension.TitleZh;
+        }
+        catch (Exception) { }
+        bool shown = S.Extensions.FirstOrDefault(extension => extension.Id == id) is not { CompactShown: false };
+        void Show(bool on) => Change(s =>
+        {
+            var at = s.Extensions.FindIndex(extension => extension.Id == id);
+            if (at < 0) s.Extensions.Add(new ExtensionPageSettings(id) { CompactShown = on });
+            else s.Extensions[at] = s.Extensions[at] with { CompactShown = on };
+        });
         var row = new Grid { Background = Brushes.Transparent };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(PartHandleWidth) }); row.ColumnDefinitions.Add(new ColumnDefinition()); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var handle = new Border { Width = 22, Background = Brushes.Transparent, Cursor = Cursors.SizeAll, HorizontalAlignment = HorizontalAlignment.Left, Child = Grip(TextTertiary) };
@@ -87,15 +97,15 @@ public sealed partial class SettingsWindow
         AutomationProperties.SetName(toggle, title); toggle.Checked += (_, _) => Show(true); toggle.Unchecked += (_, _) => Show(false);
         Grid.SetColumn(toggle, 2); row.Children.Add(toggle);
         AttachPartDrag(handle, style, rows);
-        return new Border { Child = row, Height = PartRowHeight, BorderBrush = UI.Brush(_palette.RowDivider), BorderThickness = new Thickness(0), Tag = CompactPart.Plugins, RenderTransform = new TranslateTransform() };
+        return new Border { Child = row, Height = PartRowHeight, BorderBrush = UI.Brush(_palette.RowDivider), BorderThickness = new Thickness(0), Tag = key, RenderTransform = new TranslateTransform() };
     }
 
     private const double PartRowHeight = 44, PartHandleWidth = 40;
     // The parts whose options are open (the equalizer, the clock), kept while the page is rebuilt or the collapsed style changes.
-    private readonly HashSet<CompactPart> _openParts = [];
+    private readonly HashSet<string> _openParts = [];
     private readonly List<(Border Row, Border Options, Button Arrow)> _partOptions = [];
     // One draggable row of the collapsed content: the handle, the name and the switch.
-    private Border PartRow(CompactStyle style, CompactPart part, StackPanel rows)
+    private Border PartRow(CompactStyle style, string part, StackPanel rows)
     {
         bool notch = style == CompactStyle.Notch;
         var (title, shown, help) = part switch
@@ -129,7 +139,7 @@ public sealed partial class SettingsWindow
     // row is one line high while they move.
     private void AttachPartDrag(Border handle, CompactStyle style, StackPanel rows) => AttachDrag(handle, () => rows, PartRowHeight, list =>
     {
-        var order = list.Children.OfType<Border>().Where(b => b.Tag is CompactPart).Select(b => (CompactPart)b.Tag).ToArray();
+        var order = list.Children.OfType<Border>().Where(b => b.Tag is string).Select(b => (string)b.Tag).ToArray();
         Change(s => s.SetCompactOrder(style, order));
     }, ClosePartOptions);
     private void ClosePartOptions()
@@ -140,7 +150,7 @@ public sealed partial class SettingsWindow
     // A part with options under it: the handle, the title with its arrow, and the switch, which only turns the part on or off.
     // The title and its arrow open and close the options; the options are dimmed while the part is off. Without padding they lie
     // under the title, a little indented, as the page rows' sizes do; with it, on a card across the row.
-    private Border OptionsPartRow(CompactStyle style, CompactPart part, StackPanel rows, string title, string arrowName, bool shown, Action<bool> turn, FrameworkElement content, Thickness? padding = null)
+    private Border OptionsPartRow(CompactStyle style, string part, StackPanel rows, string title, string arrowName, bool shown, Action<bool> turn, FrameworkElement content, Thickness? padding = null)
     {
         var options = padding is { } card ? new Border { Background = UI.Brush(Inset), CornerRadius = new CornerRadius(10), Padding = card, Margin = new Thickness(0, 0, 0, 12), Child = content }
             : new Border { Margin = new Thickness(20, 0, 0, 8), Child = content };

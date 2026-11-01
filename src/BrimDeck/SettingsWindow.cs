@@ -29,13 +29,45 @@ public sealed partial class SettingsWindow : Window
     private readonly TextBlock _status = new() { Visibility = Visibility.Collapsed, TextWrapping = TextWrapping.Wrap };
     private ScrollViewer _scroll = null!;
     private static string[] _pages => [Loc.T("常规", "General"), Loc.T("收起外观", "Collapsed view"), Loc.T("展开外观", "Expanded view"),
-        Loc.T("配额与统计", "Quotas and usage"), Loc.T("模型价格", "Model prices"), Loc.T("样式", "Style"), Loc.T("播放器", "Players"), Loc.T("关于 BrimDeck", "About BrimDeck"), Loc.T("面板主题", "Panel theme"), Loc.T("显示与读数", "Display and readings"), Loc.T("插件", "Plugins")];
+        Loc.T("配额与统计", "Quotas and usage"), Loc.T("模型价格", "Model prices"), Loc.T("样式", "Style"), Loc.T("播放器", "Players"), Loc.T("关于 BrimDeck", "About BrimDeck"), Loc.T("面板主题", "Panel theme"), Loc.T("显示与读数", "Display and readings"), Loc.T("插件管理", "Plugin manager")];
     // The order of the pages in the navigation; the theme page (ThemePage) is listed with the appearance pages, and the system
     // monitor's page (MonitorSettingsPage) has its own group after music, before About.
     private static readonly int[] PageOrder = [0, 1, 2, ThemePage, 3, 4, 5, 6, MonitorSettingsPage, PluginsPageNumber, 7];
     // The plugins page: its own group after the system monitor, before About.
     private const int PluginsPageNumber = 10;
+    // The enabled plugins' own pages follow the plugins page, one per enabled plugin in the plugins' order; the group
+    // header over the plugins page covers them. Rebuilt whenever the plugins change.
+    private const int PluginPageBase = 100;
+    private readonly List<IslandExtensions.Plugin> _pluginNavPages = [];
     private int _page;
+
+    // The title a page carries in the navigation and the content's head: the built-ins from _pages, the plugins' pages
+    // from the plugin itself.
+    private string PageTitle(int page) => page >= PluginPageBase
+        ? page - PluginPageBase < _pluginNavPages.Count ? SafePluginTitle(_pluginNavPages[page - PluginPageBase]) : Loc.T("插件", "Plugin")
+        : _pages[page];
+
+    private static string SafePluginTitle(IslandExtensions.Plugin plugin)
+    {
+        try { return Loc.IsEnglish ? plugin.Extension.TitleEn : plugin.Extension.TitleZh; }
+        catch (Exception) { return plugin.Id; }
+    }
+
+    // Re-reads the enabled plugins (in the plugins' order) into the navigation; called when the plugins change and
+    // before the window first shows.
+    private void RebuildPluginNavPages()
+    {
+        var rank = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, index) in S.PluginsOrder.Select((name, index) => (name, index)))
+            if (!rank.TryAdd(name, index)) rank[name] = index;
+        _pluginNavPages.Clear();
+        foreach (var plugin in IslandExtensions.Plugins
+            .OrderBy(plugin => rank.TryGetValue(System.IO.Path.GetFileName(plugin.File), out var at) ? at : int.MaxValue)
+            .ThenBy(plugin => System.IO.Path.GetFileName(plugin.File), StringComparer.OrdinalIgnoreCase))
+            _pluginNavPages.Add(plugin);
+        // The open page may have been a plugin page that went away (a plugin disabled or unloaded).
+        if (_page >= PluginPageBase && _page - PluginPageBase >= _pluginNavPages.Count) ShowPage(PluginsPageNumber);
+    }
     private bool _preview;
     private StackPanel? _appRows;
     public FrameworkElement RootVisual { get; private set; } = null!;
@@ -67,6 +99,10 @@ public sealed partial class SettingsWindow : Window
     public SettingsWindow(App app)
     {
         _app = app;
+        // The enabled plugins' pages follow the plugins page in the navigation; rebuilt whenever the plugins change.
+        IslandExtensions.ExtensionsChanged += () => { RebuildPluginNavPages(); EnsureCompactKeys(); };
+        RebuildPluginNavPages();
+        EnsureCompactKeys();
         Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/BrimDeck;component/SettingsResources.xaml", UriKind.Relative) });
         Style = (Style)FindResource(typeof(Window));
         // Sizes are DIPs, so the window looks the same at any scale factor. The default fits the page layout (the content
@@ -314,7 +350,8 @@ public sealed partial class SettingsWindow : Window
 
     public void ShowPage(int page)
     {
-        if (page < 0 || page >= _pages.Length) return;
+        if (page < 0 || (page < PluginPageBase && page >= _pages.Length)) return;
+        if (page >= PluginPageBase && page - PluginPageBase >= _pluginNavPages.Count) return;
         RememberFocus();
         if (page != _page) { _expandedSource = null; _openSizes.Clear(); }
         if (page != ThemePage) WatchThemeFolder(false);
@@ -330,20 +367,26 @@ public sealed partial class SettingsWindow : Window
         _exceptionsReservedHeight = 0; _exceptionsOpen = false; _exceptionsHost = null;
         _scroll.ScrollChanged -= ExceptionsScrollChanged;
         _page = page; _navigation.Children.Clear(); _content.Children.Clear(); _aboutUpdateView = null; _scroll.ScrollToTop();
+        var navOrder = new List<int>();
         foreach (int i in PageOrder)
+        {
+            navOrder.Add(i);
+            if (i == PluginsPageNumber) navOrder.AddRange(Enumerable.Range(PluginPageBase, _pluginNavPages.Count));
+        }
+        foreach (int i in navOrder)
         {
             if (i is 0 or 3 or 5 or 7 or MonitorSettingsPage or PluginsPageNumber)
             {
-                var group = TextLine(i switch { 0 => Loc.T("基础设置", "Basics"), 3 => Loc.T("AI 用量", "AI usage"), MonitorSettingsPage => Loc.T("系统监控", "System monitor"), 5 => Loc.T("音乐", "Music"), PluginsPageNumber => Loc.T("拓展", "Extensions"), _ => Loc.T("关于", "About") },10.5,TextTertiary);
+                var group = TextLine(i switch { 0 => Loc.T("基础设置", "Basics"), 3 => Loc.T("AI 用量", "AI usage"), MonitorSettingsPage => Loc.T("系统监控", "System monitor"), 5 => Loc.T("音乐", "Music"), PluginsPageNumber => Loc.T("插件", "Plugins"), _ => Loc.T("关于", "About") },10.5,TextTertiary);
                 group.Margin = new Thickness(12, i == 0 ? 0 : 24, 0, 8); _navigation.Children.Add(group);
             }
             int target=i; bool selected=page==i;
             var row = new StackPanel { Orientation = Orientation.Horizontal };
             var icon = NavigationIcon(i, selected ? TextPrimary : TextSecondary); icon.Margin = new Thickness(0,0,10,0); row.Children.Add(icon);
-            row.Children.Add(TextLine(i == 7 ? "BrimDeck" : _pages[i],12.5,selected ? TextPrimary : TextSecondary,selected ? FontWeights.Medium : FontWeights.Normal));
+            row.Children.Add(TextLine(i == 7 ? "BrimDeck" : PageTitle(i),12.5,selected ? TextPrimary : TextSecondary,selected ? FontWeights.Medium : FontWeights.Normal));
             if (i == 7) { _updateBadge = UpdateBadge(); row.Children.Add(_updateBadge); }
             var button=new Button { Style=(Style)FindResource("SettingsNav"),Content=row,Margin=new Thickness(0,0,0,4),Tag=selected ? "Selected" : null };
-            button.Click+=(_,_)=>ShowPage(target); AutomationProperties.SetName(button,_pages[i]); _navigation.Children.Add(button);
+            button.Click+=(_,_)=>ShowPage(target); AutomationProperties.SetName(button,PageTitle(i)); _navigation.Children.Add(button);
             // The rebuilt list keeps its scroll position; a page opened from elsewhere (the tray, a link) is brought into view.
             if (selected) Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () => { if (button.IsLoaded) button.BringIntoView(); });
         }
@@ -353,8 +396,8 @@ public sealed partial class SettingsWindow : Window
         {
             var reset=ActionButton(Loc.T("恢复默认", "Restore defaults"),ResetPage); reset.FontSize=11; DockPanel.SetDock(reset,Dock.Right); head.Children.Add(reset);
         }
-        head.Children.Add(page == 7 ? Wordmark(28) : TextLine(_pages[page],24,TextPrimary,FontWeights.SemiBold)); _content.Children.Add(head);
-        switch(page) { case 0: General(); break; case 1: Compact(); break; case 2: Expanded(); break; case 3: Pages(); break; case 4: ModelPrices(); break; case 5: MusicStyle(); break; case 6: Players(); break; case 7: About(); break; case ThemePage: ThemesPage(); break; case MonitorSettingsPage: MonitorSettings(); break; case PluginsPageNumber: PluginsPage(); break; }
+        head.Children.Add(page == 7 ? Wordmark(28) : TextLine(PageTitle(page),24,TextPrimary,FontWeights.SemiBold)); _content.Children.Add(head);
+        switch(page) { case 0: General(); break; case 1: Compact(); break; case 2: Expanded(); break; case 3: Pages(); break; case 4: ModelPrices(); break; case 5: MusicStyle(); break; case 6: Players(); break; case 7: About(); break; case ThemePage: ThemesPage(); break; case MonitorSettingsPage: MonitorSettings(); break; case PluginsPageNumber: PluginsPage(); break; case >= PluginPageBase: PluginSettingsPage(page - PluginPageBase); break; }
         if (_content.Children[^1] is Border lastGroup) lastGroup.Margin = new Thickness(lastGroup.Margin.Left, lastGroup.Margin.Top, lastGroup.Margin.Right, 0);
         // Apply the offset before the frame is drawn, so the rebuilt page never shows its top for a frame.
         if (keep > 0) { _scroll.UpdateLayout(); _scroll.ScrollToVerticalOffset(keep); _scroll.UpdateLayout(); }
