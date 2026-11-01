@@ -145,7 +145,6 @@ public sealed partial class SettingsWindow
         // The drag handle: the plugins' order here is the load order and the sidebar's order (the display order lives
         // in the collapsed and expanded views' own editors).
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -161,11 +160,11 @@ public sealed partial class SettingsWindow
             Width = 16, Height = 16, Stretch = Stretch.Uniform,
             VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0), Opacity = disabled ? 0.4 : 1
         };
-        Grid.SetColumn(glyph, 1);
+        Grid.SetColumn(glyph, 0);
         header.Children.Add(glyph);
         var name = TextLine(title, 12.5, disabled ? TextSecondary : TextPrimary);
         name.VerticalAlignment = VerticalAlignment.Center; name.TextTrimming = TextTrimming.CharacterEllipsis;
-        Grid.SetColumn(name, 2);
+        Grid.SetColumn(name, 1);
         header.Children.Add(name);
         // The state the row is in: what the reader needs to know at a glance.
         string state = disabled ? Loc.T("已停用", "Disabled")
@@ -175,38 +174,42 @@ public sealed partial class SettingsWindow
         var stateLabel = TextLine(state, 11.5, disabled || failure.File is not null ? TextTertiary : UI.Secondary);
         stateLabel.VerticalAlignment = VerticalAlignment.Center; stateLabel.Margin = new Thickness(12, 0, 12, 0);
         stateLabel.MinWidth = 90; stateLabel.TextAlignment = TextAlignment.Right;
-        Grid.SetColumn(stateLabel, 3);
+        Grid.SetColumn(stateLabel, 2);
         header.Children.Add(stateLabel);
         var toggle = new CheckBox { Style = (Style)FindResource("SettingsToggle"), IsChecked = !disabled, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
         AutomationProperties.SetName(toggle, Loc.T("启用 ", "Enable ") + title);
         toggle.Checked += (_, _) => EnablePlugin(file);
         toggle.Unchecked += (_, _) => DisablePlugin(file);
-        Grid.SetColumn(toggle, 4);
+        Grid.SetColumn(toggle, 3);
         header.Children.Add(toggle);
         arrow = ChevronButton(Loc.T("展开插件信息", "Show plugin details"), Flip);
         arrow.Margin = new Thickness(4, 0, 0, 0);
         PointArrow(arrow, open);
-        Grid.SetColumn(arrow, 5);
+        Grid.SetColumn(arrow, 4);
         header.Children.Add(arrow);
         header.MouseLeftButtonDown += (_, e) => { Flip(); e.Handled = true; };
+        var detailsBody = new StackPanel { Margin = new Thickness(26, 0, 0, 10), Visibility = open ? Visibility.Visible : Visibility.Collapsed };
+        foreach (var line in DetailLines(file, plugin, known, failure, skipped)) detailsBody.Children.Add(line);
+        details = detailsBody;
+
+        // The drag handle needs the row shape AttachDrag expects: the handle in a Grid whose parent is the row Border.
+        var row = new Grid { Background = Brushes.Transparent };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(PartHandleWidth) }); row.ColumnDefinitions.Add(new ColumnDefinition());
+        var body = new StackPanel(); body.Children.Add(header); body.Children.Add(details);
+        body.Margin = new Thickness(4, 0, 0, 0);
+        Grid.SetColumn(body, 1);
         var handle = new Border { Width = 22, Height = PluginRowHeight, VerticalAlignment = VerticalAlignment.Center, Background = Brushes.Transparent, Cursor = Cursors.SizeAll, HorizontalAlignment = HorizontalAlignment.Left, Child = Grip(TextTertiary) };
-        Grid.SetColumn(handle, 0);
-        header.Children.Add(handle);
+        row.Children.Add(handle); row.Children.Add(body);
+        Grid.SetColumn(body, 1);
+        item = new Border { Child = row, Height = open ? double.NaN : PluginRowHeight, BorderBrush = UI.Brush(_palette.RowDivider), BorderThickness = new Thickness(0), Tag = file, RenderTransform = new TranslateTransform() };
+        // The plugins' order here is the load order and the sidebar's order (the display order lives in the collapsed
+        // and expanded views' own editors).
         AttachDrag(handle, () => rows, PluginRowHeight, arranged =>
         {
             var order = arranged.Children.OfType<Border>().Where(b => b.Tag is string).Select(b => (string)b.Tag).ToList();
             Change(s => s.PluginsOrder = order);
             ReloadPlugins();
         }, null);
-
-        var detailsBody = new StackPanel { Margin = new Thickness(26, 0, 0, 10), Visibility = open ? Visibility.Visible : Visibility.Collapsed };
-        foreach (var line in DetailLines(file, plugin, known, failure, skipped)) detailsBody.Children.Add(line);
-        details = detailsBody;
-
-        // The plugins' order is the collapsed and expanded views' own editors' business (the parts and the pages
-        // editors); this page only turns plugins on and off.
-        var rowPanel = new StackPanel(); rowPanel.Children.Add(header); rowPanel.Children.Add(details);
-        item = new Border { Child = rowPanel, Height = open ? double.NaN : PluginRowHeight, BorderBrush = UI.Brush(_palette.RowDivider), BorderThickness = new Thickness(0), Tag = file, RenderTransform = new TranslateTransform() };
         return item;
     }
 

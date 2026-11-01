@@ -62,7 +62,9 @@ public sealed partial class SettingsWindow
             {
                 CompactPart.Equalizer => EqualizerRow(style, rows),
                 CompactPart.Clock => ClockRow(style, rows),
-                var pluginKey when pluginKey.StartsWith("plugin:", StringComparison.Ordinal) => PluginPartRow(style, pluginKey, rows),
+                var pluginKey when pluginKey.StartsWith("plugin:", StringComparison.Ordinal)
+                    => IslandExtensions.Plugins.Any(p => p.Id == pluginKey["plugin:".Length..]) ? PluginPartRow(style, pluginKey, rows)
+                    : new Separator { Visibility = Visibility.Collapsed, Tag = pluginKey },
                 _ => PartRow(style, part, rows)
             });
         UpdateDividers(rows);

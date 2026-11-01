@@ -47,10 +47,28 @@ public sealed partial class SettingsWindow : Window
         ? page - PluginPageBase < _pluginNavPages.Count ? SafePluginTitle(_pluginNavPages[page - PluginPageBase]) : Loc.T("插件", "Plugin")
         : _pages[page];
 
+    // The nav icon of a plugin page: the plugin's own glyph, at the navigation's size.
+    private System.Windows.Shapes.Path PluginNavIcon(int page, string color)
+    {
+        string? glyphData = page - PluginPageBase < _pluginNavPages.Count ? SafePluginGlyph(_pluginNavPages[page - PluginPageBase]) : null;
+        return new System.Windows.Shapes.Path
+        {
+            Data = IslandExtensions.SafeGlyph(glyphData),
+            Stroke = UI.Brush(color), StrokeThickness = 1.65, StrokeLineJoin = PenLineJoin.Round,
+            StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+            Width = 16, Height = 16, Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center
+        };
+    }
+
     private static string SafePluginTitle(IslandExtensions.Plugin plugin)
     {
         try { return Loc.IsEnglish ? plugin.Extension.TitleEn : plugin.Extension.TitleZh; }
         catch (Exception) { return plugin.Id; }
+    }
+
+    private static string SafePluginGlyph(IslandExtensions.Plugin plugin)
+    {
+        try { return plugin.Extension.Glyph; } catch (Exception) { return ""; }
     }
 
     // Re-reads the enabled plugins (in the plugins' order) into the navigation; called when the plugins change and
@@ -382,7 +400,8 @@ public sealed partial class SettingsWindow : Window
             }
             int target=i; bool selected=page==i;
             var row = new StackPanel { Orientation = Orientation.Horizontal };
-            var icon = NavigationIcon(i, selected ? TextPrimary : TextSecondary); icon.Margin = new Thickness(0,0,10,0); row.Children.Add(icon);
+            var icon = i >= PluginPageBase ? PluginNavIcon(i, selected ? TextPrimary : TextSecondary) : NavigationIcon(i, selected ? TextPrimary : TextSecondary);
+            icon.Margin = new Thickness(0,0,10,0); row.Children.Add(icon);
             row.Children.Add(TextLine(i == 7 ? "BrimDeck" : PageTitle(i),12.5,selected ? TextPrimary : TextSecondary,selected ? FontWeights.Medium : FontWeights.Normal));
             if (i == 7) { _updateBadge = UpdateBadge(); row.Children.Add(_updateBadge); }
             var button=new Button { Style=(Style)FindResource("SettingsNav"),Content=row,Margin=new Thickness(0,0,0,4),Tag=selected ? "Selected" : null };
@@ -579,6 +598,10 @@ public sealed partial class SettingsWindow : Window
         var pages = new StackPanel();
         _pageRows.Clear();
         foreach (var page in S.PageOrder)
+        {
+            // A plugin page whose plugin is disabled or gone stays in the saved order but takes no row here; it comes
+            // back with its place when the plugin is enabled again.
+            if (DeckPages.IsExtensionPage(page) && !IslandExtensions.Occupied(DeckPages.SlotOf(page))) continue;
             pages.Children.Add(page switch
             {
                 DeckPage.Music => SizeRow(Loc.T("显示音乐", "Show music"), Loc.T("音乐", "music"), page, S.MusicPage, value => { Change(s => s.MusicPage = value); FillStarts(); }, Collect(MusicSizeControls), pages, FillStarts),
@@ -586,6 +609,7 @@ public sealed partial class SettingsWindow : Window
                 >= DeckPage.Extension0 => ExtensionPageRow(page, pages),
                 _ => SizeRow(Loc.T("显示 AI 用量", "Show AI usage"), Loc.T("AI 用量", "AI usage"), page, S.UsagePage, value => { Change(s => s.UsagePage = value); FillStarts(); }, Collect(UsageSizes), pages, FillStarts)
             });
+        }
         UpdateDividers(pages);
         Group(pages);
         // Settings that apply across the expanded pages rather than to one of them.
