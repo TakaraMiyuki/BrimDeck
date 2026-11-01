@@ -146,15 +146,16 @@ internal sealed class ThrmPage : IIslandPage
     {
         if (sample is null)
         {
-            _cpu.Show(0, "--", "--", ThrmLevels.Green);
-            _gpu.Show(0, "--", "--", ThrmLevels.Green);
-            _fan.Show(0, "--", "桥未运行", ThrmLevels.Green);
+            _cpu.Show(0, "--", "--", ThrmLevels.Green, _colors.Tertiary);
+            _gpu.Show(0, "--", "--", ThrmLevels.Green, _colors.Tertiary);
+            _fan.Show(0, "--", "桥未运行", ThrmLevels.Green, _colors.Tertiary);
             _state.Text = "";
             return;
         }
-        _cpu.Show(sample.CpuTemp, $"{sample.CpuTemp:0}", $"{sample.CpuFan:0} RPM", ThrmLevels.Temperature(sample.CpuTemp));
-        _gpu.Show(sample.GpuTemp, $"{sample.GpuTemp:0}", $"{sample.GpuFan:0} RPM", ThrmLevels.Temperature(sample.GpuTemp));
-        _fan.Show(sample.CpuFan, $"{sample.CpuFan:0}", $"目标 {sample.CpuFan:0} · {sample.Mode}", ThrmLevels.Fan(sample.CpuFan));
+        // The arc carries the level's color; the figures stay in the palette's primary, as the panel's own numbers do.
+        _cpu.Show(sample.CpuTemp, $"{sample.CpuTemp:0}", $"{sample.CpuFan:0} RPM", ThrmLevels.Temperature(sample.CpuTemp), _colors.Primary);
+        _gpu.Show(sample.GpuTemp, $"{sample.GpuTemp:0}", $"{sample.GpuFan:0} RPM", ThrmLevels.Temperature(sample.GpuTemp), _colors.Primary);
+        _fan.Show(sample.CpuFan, $"{sample.CpuFan:0}", $"目标 {sample.CpuFan:0} · {sample.Mode}", ThrmLevels.Fan(sample.CpuFan), _colors.Primary);
         _state.Text = "挡位 / gear: " + sample.Mode;
     }
 
@@ -178,10 +179,13 @@ internal static class Icons
         "M 7,9 H 4 M 7,12 H 4 M 7,15 H 4 M 17,9 H 20 M 17,12 H 20 M 17,15 H 20";
     public const string Gpu =
         "M 3,6 H 21 V 15 H 3 Z M 6,9 H 18 M 6,12 H 12 M 7,15 V 18 M 17,15 V 18";
+    // Four blades about the hub, as the cooler software draws its fan: each a rounded leaf pointing out.
     public const string Fan =
-        "M 12,12 C 10,10 10,6 12,3 C 14,6 14,10 12,12 Z " +
-        "M 12,12 C 14,14 18,14 21,12 C 18,10 14,10 12,12 Z " +
-        "M 12,12 C 10,14 6,14 3,12 C 6,10 10,10 12,12 Z";
+        "M 12,9.5 C 10.6,8.2 10.6,5.6 12,3.5 C 13.4,5.6 13.4,8.2 12,9.5 Z " +
+        "M 14.5,12 C 15.8,10.6 18.4,10.6 20.5,12 C 18.4,13.4 15.8,13.4 14.5,12 Z " +
+        "M 12,14.5 C 13.4,15.8 13.4,18.4 12,20.5 C 10.6,18.4 10.6,15.8 12,14.5 Z " +
+        "M 9.5,12 C 8.2,13.4 5.6,13.4 3.5,12 C 5.6,10.6 8.2,10.6 9.5,12 Z " +
+        "M 13.2,12 A 1.2,1.2 0 1 1 13.19,12";
 }
 
 // One gauge card: its mark and title across the top, a half-circle arc filled to the reading's share, the figure large
@@ -255,15 +259,14 @@ internal sealed class GaugeCard
     }
 
     // The figures and the arc take the level's color; the card's chrome follows the panel theme.
-    public void Show(double value, string figure, string second, string levelColor)
+    public void Show(double value, string figure, string second, string levelColor, string figureColor)
     {
         _value.Text = figure;
         _unitText.Text = _unit;
         _sub.Text = second;
-        var brush = ThrmPage.Brush(levelColor);
-        _value.Foreground = brush;
-        _unitText.Foreground = brush;
-        _fill.Stroke = brush;
+        _value.Foreground = ThrmPage.Brush(figureColor);
+        _unitText.Foreground = ThrmPage.Brush(figureColor);
+        _fill.Stroke = ThrmPage.Brush(levelColor);
         double share = _max > _min ? Math.Clamp((value - _min) / (_max - _min), 0, 1) : 0;
         // StrokeDashArray counts multiples of the stroke width, not pixels.
         double span = Math.PI * (ArcWidth / 2 - ArcStroke) / ArcStroke;
@@ -334,24 +337,27 @@ internal sealed class ThrmCompact : IIslandCompact
     {
         if (_sample is not { } sample)
         {
-            _cpu.Show("--", 0, _colors.Tertiary);
-            _gpu.Show("--", 0, _colors.Tertiary);
-            _fan.Show("--", 0, _colors.Tertiary);
+            _cpu.Show("--", 0, _colors.Tertiary, _colors.Fill);
+            _gpu.Show("--", 0, _colors.Tertiary, _colors.Fill);
+            _fan.Show("--", 0, _colors.Tertiary, _colors.Fill);
             return;
         }
-        _cpu.Show($"{sample.CpuTemp:0}°", sample.CpuTemp, ThrmLevels.Temperature(sample.CpuTemp));
-        _gpu.Show($"{sample.GpuTemp:0}°", sample.GpuTemp, ThrmLevels.Temperature(sample.GpuTemp));
-        _fan.Show($"{sample.CpuFan:0}", sample.CpuFan, ThrmLevels.Fan(sample.CpuFan));
+        // The figures take the palette's shade (the row's numbers stay one color, as the built-in readings' do); the
+        // levels show in the ring alone.
+        _cpu.Show($"{sample.CpuTemp:0}°", sample.CpuTemp, _colors.Secondary, ThrmLevels.Temperature(sample.CpuTemp));
+        _gpu.Show($"{sample.GpuTemp:0}°", sample.GpuTemp, _colors.Secondary, ThrmLevels.Temperature(sample.GpuTemp));
+        _fan.Show($"{sample.CpuFan:0}", sample.CpuFan, _colors.Secondary, ThrmLevels.Fan(sample.CpuFan));
     }
 
     // One reading: the built-ins' ring (18 DIP, 2 DIP stroke) with its initial inside, and the figure beside it.
     private sealed class Reading(string initial, double min, double max)
     {
-        private const double Size = 18, Thickness = 2;
+        // The built-in system readings' ring: 14 DIP across with a 2.2 DIP stroke.
+        private const double Size = 14, Thickness = 2.2;
         private static readonly Geometry RingGeometry = Ring();
         private readonly System.Windows.Shapes.Path _track = new() { Data = RingGeometry, StrokeThickness = Thickness, Stretch = Stretch.None };
         private readonly System.Windows.Shapes.Path _fill = new() { Data = RingGeometry, StrokeThickness = Thickness, Stretch = Stretch.None };
-        private readonly TextBlock _initial = new() { FontSize = 8, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        private readonly TextBlock _initial = new() { FontSize = 7, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         private readonly TextBlock _text = new()
         {
             FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center,
@@ -378,15 +384,15 @@ internal sealed class ThrmCompact : IIslandCompact
             _initial.Foreground = ThrmPage.Brush(colors.Secondary);
         }
 
-        public void Show(string figure, double value, string color)
+        public void Show(string figure, double value, string textColor, string ringColor)
         {
             _text.Text = figure;
-            _text.Foreground = ThrmPage.Brush(color);
+            _text.Foreground = ThrmPage.Brush(textColor);
             double share = max > min ? Math.Clamp((value - min) / (max - min), 0, 1) : 0;
             // StrokeDashArray counts multiples of the stroke width, not pixels.
             double span = Math.PI * 2 * (Size / 2 - Thickness / 2) / Thickness;
             _fill.StrokeDashArray = [span * share, span * 2];
-            _fill.Stroke = ThrmPage.Brush(color);
+            _fill.Stroke = ThrmPage.Brush(ringColor);
         }
 
         public void MeasurePreview(string preview)
