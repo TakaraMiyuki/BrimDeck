@@ -1060,10 +1060,12 @@ public partial class MainWindow
                     element = _compactMarquee = CompactTitle(text, room, layout); break;
                 case IIslandCompact compact:
                     // The view is kept per plugin instance and detached from the row it left, since the row is rebuilt
-                    // whole on every shape; the widget keeps its state the while.
+                    // whole on every shape; the widget keeps its state the while. The wrapper fills the row's height so
+                    // the widget's own VerticalAlignment.Center centers it.
                     double widgetWidth = pluginParts.First(part => part.Compact == compact).Width;
                     var pluginView = _compactViews.TryGetValue(compact, out var kept) ? kept : new Grid();
                     pluginView.Width = widgetWidth;
+                    pluginView.Height = row;
                     if (pluginView.Parent is Panel former) former.Children.Remove(pluginView);
                     element = CompactRegion(pluginView, room, widgetWidth, row, row, RegionAnchor.Left, dpi);
                     break;
