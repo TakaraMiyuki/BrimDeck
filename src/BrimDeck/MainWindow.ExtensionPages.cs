@@ -46,6 +46,8 @@ public partial class MainWindow
             }
             return preferred;
         };
+        // The floor the page's drag and save honour: the plugin's own ask, never the size being saved.
+        DeckPages.ExtensionFloor = slot => IslandExtensions.PreferredSize(slot);
         IslandExtensions.ExtensionsChanged += ExtensionSlotsChanged;
         EnsureExtensionPagesOrdered();
         // The startup scan ran before this window existed: prune stale widget keys and enter the loaded ones now.

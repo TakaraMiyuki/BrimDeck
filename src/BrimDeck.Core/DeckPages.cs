@@ -14,6 +14,8 @@ public static class DeckPages
     public static Func<int, bool>? SlotOccupied;
     public static Func<int, string?>? SlotId;
     public static Func<DeckSettings, int, (double Width, double Height)>? ExtensionSize;
+    // What the slot's plugin asked to be drawn at, independent of any size the reader has saved: the page's floor.
+    public static Func<int, (double Width, double Height)?>? ExtensionFloor;
 
     public static bool IsExtensionPage(DeckPage page) => page is >= DeckPage.Extension0 and <= DeckPage.Extension3;
     public static int SlotOf(DeckPage page) => IsExtensionPage(page) ? page - DeckPage.Extension0 : -1;
@@ -51,14 +53,12 @@ public static class DeckPages
 
     public static (double MinWidth, double MaxWidth, double MinHeight, double MaxHeight) Limits(DeckSettings settings, DeckPage page)
     {
-        // A plugin page's floor is what its plugin asked for: the box it draws is cut otherwise. The host's own minimum
-        // still applies, and the max stays the shared one.
-        if (IsExtensionPage(page))
-        {
-            if (ExtensionSize?.Invoke(settings, SlotOf(page)) is var (askedWidth, askedHeight))
-                return (Math.Clamp(Math.Max(MinWidth, askedWidth), MinWidth, MaxWidth), MaxWidth,
-                        Math.Clamp(Math.Max(MinHeight, askedHeight), MinHeight, MaxHeight), MaxHeight);
-        }
+        // A plugin page's floor is what its PLUGIN asked for — a fixed number that never follows the size being saved.
+        // (Reading the saved size here made the floor climb with every drag frame: each save raised the next minimum,
+        // so dragging inward pushed the page outward.)
+        if (IsExtensionPage(page) && ExtensionFloor?.Invoke(SlotOf(page)) is { } floor)
+            return (Math.Clamp(Math.Max(MinWidth, floor.Width), MinWidth, MaxWidth), MaxWidth,
+                    Math.Clamp(Math.Max(MinHeight, floor.Height), MinHeight, MaxHeight), MaxHeight);
         return (page == DeckPage.Usage ? Math.Max(MinWidth, settings.MinimumWidth) : MinWidth, MaxWidth, MinHeight, MaxHeight);
     }
 
